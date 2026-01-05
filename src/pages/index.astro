@@ -1,0 +1,769 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout title="SAAI - Strudel Augmented Artificial Intelligence">
+  <!-- Animated gradient background -->
+  <div class="gradient-background"></div>
+
+  <!-- Background visualizations -->
+  <div class="viz-background">
+    <canvas id="spectrum-canvas"></canvas>
+    <canvas id="scope-canvas"></canvas>
+    <canvas id="pianoroll-canvas"></canvas>
+  </div>
+
+  <!-- Sticky header -->
+  <header class="header">
+    <h1 title="Strudel Augmented Artificial Intelligence">SAAI</h1>
+    <div class="header-controls">
+      <button id="ai-btn" title="AI Generate">✦</button>
+      <button id="code-btn" title="Code Editor" class="active">&lt;/&gt;</button>
+      <button id="alter-toggle-btn" title="Alter Code" class="active">⚙</button>
+    </div>
+  </header>
+
+  <!-- UI on top -->
+  <div class="container">
+    <div id="generate-panel" class="generate-panel hidden">
+      <div class="input-section">
+        <div class="input-group">
+          <select id="genre-select">
+            <option value="">No genre template</option>
+            <option value="edm">EDM / House / Techno</option>
+            <option value="dnb">Drum & Bass</option>
+            <option value="hiphop-trap">Hip-Hop / Trap</option>
+            <option value="acid">Acid</option>
+            <option value="jazz">Jazz</option>
+          </select>
+          <input
+            type="text"
+            id="prompt-input"
+            placeholder="Describe the music you want... (e.g., 'funky drum beat with hi-hats')"
+          />
+          <button id="generate-btn">Generate</button>
+        </div>
+      </div>
+
+      <div class="context-section">
+        <div class="context-header" id="context-header">
+          <span>AI Context (Stage 1 output)</span>
+          <span class="context-arrow collapsed" id="context-arrow">▼</span>
+        </div>
+        <pre id="context-display" class="collapsed">// The enriched prompt will appear here...</pre>
+      </div>
+    </div>
+
+    <div class="code-section">
+      <div id="code-editor-container">
+        <button id="reset-btn" title="Reset">↺</button>
+        <button id="play-btn" title="Play">▶</button>
+      </div>
+      <div class="alter-section">
+        <input
+          type="text"
+          id="alter-input"
+          placeholder="Alter: e.g., 'add more reverb', 'make it faster', 'remove hi-hats'..."
+        />
+        <button id="alter-btn">Alter</button>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    import { initStrudel, evaluate, hush } from '@strudel/web';
+    import { cleanupDraw, Framer } from '@strudel/draw';
+    import { createEditor, getCode, setCode, updateHighlights, clearHighlights } from '../lib/editor';
+    import type { EditorView } from '@codemirror/view';
+
+    // Declare global functions made available by initStrudel
+    declare function samples(source: string): Promise<void>;
+    // Debug flag for highlighting
+    declare global {
+      interface Window {
+        __debuggedHap?: boolean;
+      }
+    }
+
+    // DOM elements
+    const aiBtn = document.getElementById('ai-btn') as HTMLButtonElement;
+    const codeBtn = document.getElementById('code-btn') as HTMLButtonElement;
+    const alterToggleBtn = document.getElementById('alter-toggle-btn') as HTMLButtonElement;
+    const generatePanel = document.getElementById('generate-panel') as HTMLDivElement;
+    const codeSection = document.querySelector('.code-section') as HTMLDivElement;
+    const alterSection = document.querySelector('.alter-section') as HTMLDivElement;
+    const contextHeader = document.getElementById('context-header') as HTMLDivElement;
+    const contextArrow = document.getElementById('context-arrow') as HTMLSpanElement;
+    const promptInput = document.getElementById('prompt-input') as HTMLInputElement;
+    const genreSelect = document.getElementById('genre-select') as HTMLSelectElement;
+    const generateBtn = document.getElementById('generate-btn') as HTMLButtonElement;
+    const alterInput = document.getElementById('alter-input') as HTMLInputElement;
+    const alterBtn = document.getElementById('alter-btn') as HTMLButtonElement;
+    const playBtn = document.getElementById('play-btn') as HTMLButtonElement;
+    const resetBtn = document.getElementById('reset-btn') as HTMLButtonElement;
+    const editorContainer = document.getElementById('code-editor-container') as HTMLDivElement;
+    const contextDisplay = document.getElementById('context-display') as HTMLPreElement;
+    const pianorollCanvas = document.getElementById('pianoroll-canvas') as HTMLCanvasElement;
+    const spectrumCanvas = document.getElementById('spectrum-canvas') as HTMLCanvasElement;
+    const scopeCanvas = document.getElementById('scope-canvas') as HTMLCanvasElement;
+
+    // Example Strudel code
+    const exampleCode = `setcps(138/60/4)
+
+stack(
+  s("bd:5*4").gain(1.2),
+  s("~ ~ oh ~ ~ ~ oh ~ ~ ~ oh ~ ~ ~ oh ~"),
+  s("~ ~ ~ ~ cp ~ ~ ~ ~ ~ ~ ~ cp ~ ~ ~").gain(0.4),
+  s("hh*16").gain("1 0.6 0.8 0.6").room(0.4),
+  note("~ e1 e1 e1 ~ e1 e1 e1 ~ e1 e1 e1 ~ e1 e1 e1")
+    .s("sawtooth")
+    .lpf(800)
+    .gain(0.7),
+  note("<[e3 ~ ~ g3 ~ ~ b3 ~ e4 ~ ~ d4 ~ b3 ~ ~] [c3 ~ ~ e3 ~ ~ g3 ~ c4 ~ ~ b3 ~ g3 ~ ~] [d3 ~ ~ f3 ~ ~ a3 ~ d4 ~ ~ c4 ~ a3 ~ ~] [b2 ~ ~ d3 ~ ~ f3 ~ b3 ~ ~ a3 ~ f3 ~ ~]>")
+    .s("sawtooth")
+    .lpf(sine.range(500, 5000).slow(8))
+    .chorus(0.5)
+    .delay(0.3)
+    .delayfb(0.4)
+    .room(0.6)
+    .gain(0.5)
+)`;
+
+    // Debounce timer for code changes
+    let codeChangeTimer: ReturnType<typeof setTimeout> | null = null;
+
+    // Handle code changes - stop and restart music
+    function handleCodeChange() {
+      if (!isPlaying) return;
+
+      // Clear any pending timer
+      if (codeChangeTimer) {
+        clearTimeout(codeChangeTimer);
+      }
+
+      // Stop the music
+      if (isInitialized) {
+        hush();
+        stopHighlighting();
+      }
+
+      // Restart after 0.2 seconds
+      codeChangeTimer = setTimeout(() => {
+        playCode();
+      }, 200);
+    }
+
+    // Initialize CodeMirror editor with change handler
+    const editor: EditorView = createEditor(editorContainer, exampleCode, handleCodeChange);
+
+    // State
+    let isInitialized = false;
+    let isPlaying = false;
+    let strudelRepl: any = null;
+    let highlightFramer: InstanceType<typeof Framer> | null = null;
+    let lastEnrichedContext: string = '';
+    let lastGenreContext: string = '';
+    let codeOffset: number = 0; // Offset for location mapping when code is wrapped
+
+    // Base samples from dirt-samples and other sources
+    const BASE_SAMPLES = new Set([
+      // Drums (dirt-samples)
+      'bd', 'sd', 'hh', 'oh', 'cp', 'cr', 'rim', 'tom', 'lt', 'mt', 'ht',
+      'perc', 'tabla', 'tabla2', 'hand', 'kick', 'snare',
+      // Percussion (dirt-samples)
+      'can', 'metal', 'bottle', 'glass', 'crow', 'jazz', 'east',
+      'world', 'mouth', 'click', 'noise',
+      // Melodic samples (dirt-samples)
+      'arpy', 'pluck', 'jvbass', 'bass', 'bass1', 'bass2', 'bass3',
+      'casio', 'gtr', 'ades', 'ade',
+      // Built-in WebAudio synths (used with note().s())
+      'sawtooth', 'square', 'triangle', 'sine',
+      'supersaw', 'supersquare', 'supersine',
+      // Loaded sample instruments (dough-samples)
+      'piano'
+    ]);
+    const loadedSamples = new Set<string>(BASE_SAMPLES);
+
+    // Extract sample names from Strudel code
+    function extractSamplesFromCode(code: string): string[] {
+      const foundSamples = new Set<string>();
+
+      // Match s("..."), sound("..."), and .s("...") patterns
+      const patterns = [
+        /s\("([^"]+)"\)/g,
+        /sound\("([^"]+)"\)/g,
+        /\.s\("([^"]+)"\)/g
+      ];
+
+      for (const pattern of patterns) {
+        let match;
+        while ((match = pattern.exec(code)) !== null) {
+          // Parse mini-notation: "bd:5 ~ [sd,cp] hh*8" → ["bd", "sd", "cp", "hh"]
+          const names = match[1]
+            .replace(/[\[\]<>]/g, ' ')      // Remove brackets
+            .replace(/[*\/]\d+\.?\d*/g, '') // Remove *8, /2, *0.5 etc
+            .replace(/:\d+/g, '')           // Remove :5 variants
+            .replace(/[~,]/g, ' ')          // Replace ~ and , with space
+            .split(/\s+/)
+            .filter(s => s.length > 0 && s !== '~');
+
+          names.forEach(n => foundSamples.add(n));
+        }
+      }
+
+      return Array.from(foundSamples);
+    }
+
+    // Ensure all samples used in code are loaded
+    async function ensureSamplesLoaded(code: string): Promise<void> {
+      const needed = extractSamplesFromCode(code);
+      const missing = needed.filter(s => !loadedSamples.has(s));
+
+      if (missing.length > 0) {
+        // Samples from dirt-samples should already be available after init
+        // Just mark them as known so we don't warn again
+        missing.forEach(s => loadedSamples.add(s));
+      }
+    }
+
+    // Setup canvas for full-viewport visualization
+    function setupCanvas(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
+      const dpr = window.devicePixelRatio || 1;
+
+      // Set to full viewport size
+      canvas.width = window.innerWidth * dpr;
+      canvas.height = window.innerHeight * dpr;
+
+      const ctx = canvas.getContext('2d')!;
+      return ctx;
+    }
+
+    // Handle window resize - update canvas dimensions
+    function handleResize() {
+      if ((window as any).__pianorollCtx) {
+        (window as any).__pianorollCtx = setupCanvas(pianorollCanvas);
+      }
+      if ((window as any).__spectrumCtx) {
+        (window as any).__spectrumCtx = setupCanvas(spectrumCanvas);
+      }
+      if ((window as any).__scopeCtx) {
+        (window as any).__scopeCtx = setupCanvas(scopeCanvas);
+      }
+    }
+
+    window.addEventListener('resize', handleResize);
+
+    // Initialize Strudel with samples (loads all functions + drum samples)
+    async function init() {
+      if (isInitialized) return;
+      try {
+        strudelRepl = await initStrudel({
+          // Load samples from multiple sources
+          prebake: async () => {
+            // Dirt-Samples for drums and percussion
+            await samples('github:tidalcycles/Dirt-Samples/master/');
+            // Piano samples from dough-samples (Salamander Grand Piano)
+            await samples('https://raw.githubusercontent.com/felixroos/dough-samples/main/piano.json');
+          },
+        });
+        isInitialized = true;
+      } catch (error) {
+        console.error('Init error:', error);
+      }
+    }
+
+    // Convert note value to MIDI number
+    function noteToMidi(note: any): number | null {
+      if (typeof note === 'number') return note;
+      if (typeof note === 'string') {
+        // Parse note strings like "c3", "e4", "f#2"
+        const match = note.match(/^([a-g])([#b]?)(-?\d+)$/i);
+        if (match) {
+          const noteNames: Record<string, number> = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 };
+          const base = noteNames[match[1].toLowerCase()];
+          const modifier = match[2] === '#' ? 1 : match[2] === 'b' ? -1 : 0;
+          const octave = parseInt(match[3]);
+          return (octave + 1) * 12 + base + modifier;
+        }
+      }
+      return null;
+    }
+
+    // Draw pianoroll visualization
+    function drawPianoroll(ctx: CanvasRenderingContext2D, haps: any[], now: number, cycles: number) {
+      const width = ctx.canvas.width;
+      const height = ctx.canvas.height;
+      const dpr = window.devicePixelRatio || 1;
+
+      // Clear canvas
+      ctx.fillStyle = '#0a0a0a';
+      ctx.fillRect(0, 0, width, height);
+
+      // Collect note events and find range
+      const noteEvents: { start: number; end: number; midi: number; active: boolean }[] = [];
+      let minMidi = 127, maxMidi = 0;
+
+      for (const hap of haps) {
+        const noteVal = hap.value?.note ?? hap.value?.n ?? hap.value?.freq;
+        if (noteVal === undefined) continue;
+
+        let midi: number | null = null;
+        if (hap.value?.freq) {
+          // Convert frequency to MIDI
+          midi = Math.round(12 * Math.log2(hap.value.freq / 440) + 69);
+        } else {
+          midi = noteToMidi(noteVal);
+        }
+
+        if (midi === null || midi < 0 || midi > 127) continue;
+
+        const start = hap.whole?.begin ?? hap.part?.begin ?? 0;
+        const end = hap.whole?.end ?? hap.part?.end ?? start + 0.25;
+        const isActive = now >= start && now < end;
+
+        noteEvents.push({ start, end, midi, active: isActive });
+        minMidi = Math.min(minMidi, midi);
+        maxMidi = Math.max(maxMidi, midi);
+      }
+
+      if (noteEvents.length === 0) return;
+
+      // Add padding to range
+      minMidi = Math.max(0, minMidi - 2);
+      maxMidi = Math.min(127, maxMidi + 2);
+      const midiRange = Math.max(maxMidi - minMidi, 12);
+
+      // Time range
+      const timeStart = now - cycles * 0.25;
+      const timeEnd = now + cycles * 0.75;
+      const timeRange = timeEnd - timeStart;
+
+      // Draw notes
+      for (const event of noteEvents) {
+        const x = ((event.start - timeStart) / timeRange) * width;
+        const noteWidth = ((event.end - event.start) / timeRange) * width;
+        const y = height - ((event.midi - minMidi) / midiRange) * height;
+        const noteHeight = Math.max(height / midiRange, 3 * dpr);
+
+        ctx.fillStyle = event.active ? '#22d3ee' : '#475569';
+        ctx.fillRect(x, y - noteHeight / 2, Math.max(noteWidth, 2 * dpr), noteHeight);
+      }
+
+      // Draw playhead
+      const playheadX = (cycles * 0.25 / (cycles)) * width;
+      ctx.strokeStyle = 'rgba(236, 72, 153, 0.5)';
+      ctx.lineWidth = 2 * dpr;
+      ctx.beginPath();
+      ctx.moveTo(playheadX, 0);
+      ctx.lineTo(playheadX, height);
+      ctx.stroke();
+    }
+
+    // Start mini-notation highlighting and pianoroll
+    function startHighlighting() {
+      if (!strudelRepl?.scheduler) return;
+
+      highlightFramer?.stop();
+      const pianorollCtx = (window as any).__pianorollCtx as CanvasRenderingContext2D;
+
+      highlightFramer = new Framer(() => {
+        if (!strudelRepl?.scheduler?.pattern) return;
+
+        const now = strudelRepl.scheduler.now();
+
+        // Query wider arc for pianoroll (4 cycles)
+        const cycles = 4;
+        const haps = strudelRepl.scheduler.pattern.queryArc(now - cycles * 0.25, now + cycles * 0.75);
+
+        // Draw pianoroll
+        if (pianorollCtx) {
+          drawPianoroll(pianorollCtx, haps, now, cycles);
+        }
+
+        // Extract locations from active haps for code highlighting
+        const activeHaps = haps.filter((hap: any) => {
+          const start = hap.whole?.begin ?? hap.part?.begin ?? 0;
+          const end = hap.whole?.end ?? hap.part?.end ?? 0;
+          return now >= start && now < end;
+        });
+
+        const highlights: {from: number, to: number}[] = [];
+        for (const hap of activeHaps) {
+          // Debug: log hap structure to understand location format
+          if (activeHaps.length > 0 && !window.__debuggedHap) {
+            console.log('Sample hap:', JSON.stringify(hap, null, 2));
+            window.__debuggedHap = true;
+          }
+
+          if (hap.context?.locations) {
+            for (const loc of hap.context.locations) {
+              // Handle both array [from, to] and object {start, end} formats
+              // Subtract codeOffset to map back to editor positions
+              if (Array.isArray(loc) && loc.length >= 2) {
+                highlights.push({ from: loc[0] - codeOffset, to: loc[1] - codeOffset });
+              } else if (loc && typeof loc === 'object' && 'start' in loc && 'end' in loc) {
+                highlights.push({ from: loc.start - codeOffset, to: loc.end - codeOffset });
+              }
+            }
+          }
+        }
+
+        updateHighlights(editor, highlights);
+      }, (err) => console.warn('Highlight error:', err));
+
+      highlightFramer.start();
+    }
+
+    function stopHighlighting() {
+      highlightFramer?.stop();
+      highlightFramer = null;
+      clearHighlights(editor);
+      window.__debuggedHap = false; // Reset debug flag for next play
+
+      // Clear pianoroll canvas
+      const pianorollCtx = (window as any).__pianorollCtx as CanvasRenderingContext2D;
+      if (pianorollCtx) {
+        pianorollCtx.fillStyle = '#0a0a0a';
+        pianorollCtx.fillRect(0, 0, pianorollCtx.canvas.width, pianorollCtx.canvas.height);
+      }
+    }
+
+
+    async function generateCode() {
+      const message = promptInput.value.trim();
+      if (!message) {
+        return;
+      }
+
+      generateBtn.disabled = true;
+      contextDisplay.textContent = 'Generating context...';
+      contextDisplay.className = 'loading';
+      setCode(editor, '// Generating...');
+
+      // Fetch genre template if selected
+      let genreContext = '';
+      const selectedGenre = genreSelect.value;
+      if (selectedGenre) {
+        try {
+          const genreResponse = await fetch(`/genres/strudel-${selectedGenre}-template.md`);
+          if (genreResponse.ok) {
+            genreContext = await genreResponse.text();
+            lastGenreContext = genreContext;
+          }
+        } catch (e) {
+          console.warn('Failed to load genre template:', e);
+        }
+      }
+
+      try {
+        const response = await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message, currentCode: getCode(editor), genreContext })
+        });
+
+        if (!response.ok || !response.body) {
+          throw new Error('Failed to connect to API');
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          let eventType = '';
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              eventType = line.slice(7);
+            } else if (line.startsWith('data: ') && eventType) {
+              const data = JSON.parse(line.slice(6));
+
+              if (eventType === 'stage1') {
+                lastEnrichedContext = data.enrichedPrompt;
+                contextDisplay.textContent = data.enrichedPrompt;
+                contextDisplay.className = '';
+                setCode(editor, '// Generating code...');
+              } else if (eventType === 'stage2') {
+                setCode(editor, data.code);
+              } else if (eventType === 'error') {
+                throw new Error(data.error);
+              }
+              eventType = '';
+            }
+          }
+        }
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : 'Unknown error';
+        setCode(editor, `// Error: ${msg}`);
+        contextDisplay.className = '';
+      } finally {
+        generateBtn.disabled = false;
+      }
+    }
+
+    async function alterCode() {
+      const alterRequest = alterInput.value.trim();
+      if (!alterRequest) {
+        return;
+      }
+
+      const currentCode = getCode(editor);
+      if (!currentCode || currentCode.startsWith('//')) {
+        return;
+      }
+
+      alterBtn.disabled = true;
+      alterBtn.textContent = '...';
+
+      try {
+        const response = await fetch('/api/alter', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            alterRequest,
+            currentCode,
+            enrichedContext: lastEnrichedContext,
+            genreContext: lastGenreContext
+          })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Alter failed');
+        }
+
+        setCode(editor, data.code);
+        alterInput.value = '';
+
+      } catch (error) {
+        console.error('Alter error:', error);
+      } finally {
+        alterBtn.disabled = false;
+        alterBtn.textContent = 'Alter';
+      }
+    }
+
+    async function playCode() {
+      const code = getCode(editor).trim();
+      if (!code || code.startsWith('//')) {
+        return;
+      }
+
+      // Ensure Strudel is initialized
+      if (!isInitialized) {
+        await init();
+      }
+
+      // Check for and load any missing samples
+      await ensureSamplesLoaded(code);
+
+      // Setup visualization canvases
+      (window as any).__pianorollCtx = setupCanvas(pianorollCanvas);
+      (window as any).__spectrumCtx = setupCanvas(spectrumCanvas);
+      (window as any).__scopeCtx = setupCanvas(scopeCanvas);
+
+      // Check if code has multiple statements (setbpm, setcps, etc.)
+      // In that case, we need to append visualization differently
+      const hasMultipleStatements = /^(setbpm|setcps|setBpm|setCps)\s*\(/m.test(code);
+
+      let vizCode: string;
+      if (hasMultipleStatements) {
+        // For multi-statement code, append visualization to the last expression
+        // No offset since we're appending, not wrapping
+        codeOffset = 0;
+        vizCode = code.replace(
+          /(\)\s*)$/,
+          `$1.analyze('spectrum')
+            .spectrum({ id: 'spectrum', ctx: window.__spectrumCtx, thickness: 2 })
+            .scope({ id: 'scope', ctx: window.__scopeCtx, thickness: 1.5, color: 'cyan' })`
+        );
+      } else {
+        // Single expression - wrap it with parentheses
+        // This adds 1 character offset for the opening (
+        codeOffset = 1;
+        vizCode = `(${code})
+          .analyze('spectrum')
+          .spectrum({ id: 'spectrum', ctx: window.__spectrumCtx, thickness: 2 })
+          .scope({ id: 'scope', ctx: window.__scopeCtx, thickness: 1.5, color: 'cyan' })`;
+      }
+
+      try {
+        await evaluate(vizCode);
+        startHighlighting();
+        isPlaying = true;
+        playBtn.textContent = '■';
+        playBtn.className = 'playing';
+      } catch (error) {
+        // Fallback: try without visualization if injection fails
+        console.warn('Visualization injection failed, trying without:', error);
+        try {
+          codeOffset = 0; // No wrapping in fallback
+          await evaluate(code);
+          startHighlighting();
+          isPlaying = true;
+          playBtn.textContent = '■';
+          playBtn.className = 'playing';
+        } catch (e) {
+          console.error('Play error:', e);
+        }
+      }
+    }
+
+    // Toggle play/stop
+    function togglePlay() {
+      if (isPlaying) {
+        stopCode();
+      } else {
+        playCode();
+      }
+    }
+
+    function stopCode() {
+      if (isInitialized) {
+        hush();
+        cleanupDraw(true);
+        stopHighlighting();
+        isPlaying = false;
+        playBtn.textContent = '▶';
+        playBtn.className = '';
+      }
+    }
+
+    async function resetCode() {
+      // Stop current playback
+      if (isInitialized) {
+        hush();
+        cleanupDraw(true);
+        stopHighlighting();
+      }
+
+      // Reset UI state
+      isPlaying = false;
+      playBtn.textContent = '▶';
+      playBtn.className = '';
+      setCode(editor, exampleCode);
+      contextDisplay.textContent = '// The enriched prompt will appear here...';
+      promptInput.value = '';
+
+      // Start playing the example code
+      await playCode();
+    }
+
+    // Toggle generate panel visibility
+    function toggleGeneratePanel() {
+      const isVisible = !generatePanel.classList.contains('hidden');
+      generatePanel.classList.toggle('hidden');
+      aiBtn.classList.toggle('active', !isVisible);
+    }
+
+    // Toggle code section visibility
+    function toggleCodeSection() {
+      const isVisible = !codeSection.classList.contains('hidden');
+      codeSection.classList.toggle('hidden');
+      codeBtn.classList.toggle('active', !isVisible);
+    }
+
+    // Toggle alter section visibility
+    function toggleAlterSection() {
+      const isVisible = !alterSection.classList.contains('hidden');
+      alterSection.classList.toggle('hidden');
+      alterToggleBtn.classList.toggle('active', !isVisible);
+    }
+
+    // Toggle context section visibility
+    function toggleContextSection() {
+      contextDisplay.classList.toggle('collapsed');
+      contextArrow.classList.toggle('collapsed');
+    }
+
+    // Toggle all panels (code + generate + alter)
+    let panelsVisible = true;
+    let savedCodeState = true;
+    let savedGenerateState = false;
+    let savedAlterState = true;
+
+    function toggleAllPanels() {
+      if (panelsVisible) {
+        // Save current states before hiding
+        savedCodeState = !codeSection.classList.contains('hidden');
+        savedGenerateState = !generatePanel.classList.contains('hidden');
+        savedAlterState = !alterSection.classList.contains('hidden');
+        // Hide all
+        codeSection.classList.add('hidden');
+        generatePanel.classList.add('hidden');
+        alterSection.classList.add('hidden');
+        codeBtn.classList.remove('active');
+        aiBtn.classList.remove('active');
+        alterToggleBtn.classList.remove('active');
+      } else {
+        // Restore saved states
+        if (savedCodeState) {
+          codeSection.classList.remove('hidden');
+          codeBtn.classList.add('active');
+        }
+        if (savedGenerateState) {
+          generatePanel.classList.remove('hidden');
+          aiBtn.classList.add('active');
+        }
+        if (savedAlterState) {
+          alterSection.classList.remove('hidden');
+          alterToggleBtn.classList.add('active');
+        }
+      }
+      panelsVisible = !panelsVisible;
+    }
+
+    // Event listeners
+    contextHeader.addEventListener('click', toggleContextSection);
+    aiBtn.addEventListener('click', toggleGeneratePanel);
+    codeBtn.addEventListener('click', toggleCodeSection);
+    alterToggleBtn.addEventListener('click', toggleAlterSection);
+    generateBtn.addEventListener('click', generateCode);
+    alterBtn.addEventListener('click', alterCode);
+    playBtn.addEventListener('click', togglePlay);
+    resetBtn.addEventListener('click', resetCode);
+
+    alterInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        alterCode();
+      }
+    });
+
+    promptInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        generateCode();
+      }
+    });
+
+    // Keyboard shortcut: K to toggle play/pause
+    document.addEventListener('keydown', (e) => {
+      // Don't trigger if typing in an input field
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      if (e.key === 'k' || e.key === 'K') {
+        e.preventDefault();
+        togglePlay();
+      }
+
+      // H to hide/show all panels
+      if (e.key === 'h' || e.key === 'H') {
+        e.preventDefault();
+        toggleAllPanels();
+      }
+    });
+
+    // Initialize on load
+    init();
+  </script>
+</Layout>

@@ -1,0 +1,12 @@
+# Environment variables
+.env
+
+# Dependencies
+node_modules/
+
+# Astro build output
+.astro/
+_astro/
+
+# Claude
+.claude/

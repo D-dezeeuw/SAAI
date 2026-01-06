@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro';
 import { chat, DEFAULT_MODELS } from '../../lib/openrouter';
-import { STAGE3_ALTER_PROMPT, buildStage3Prompt } from '../../lib/prompts';
+import { EVOLUTION_PROMPT, buildEvolutionPrompt } from '../../lib/prompts';
 
 export const POST: APIRoute = async ({ request }) => {
   const apiKey = import.meta.env.OPENROUTER_API_KEY;
@@ -14,7 +14,6 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   let body: {
-    alterRequest: string;
     currentCode: string;
     enrichedContext?: string;
     genreContext?: string;
@@ -30,14 +29,7 @@ export const POST: APIRoute = async ({ request }) => {
     );
   }
 
-  const { alterRequest, currentCode, enrichedContext, genreContext, bankName } = body;
-
-  if (!alterRequest) {
-    return new Response(
-      JSON.stringify({ error: 'Alter request is required' }),
-      { status: 400, headers: { 'Content-Type': 'application/json' } }
-    );
-  }
+  const { currentCode, enrichedContext, genreContext, bankName } = body;
 
   if (!currentCode) {
     return new Response(
@@ -47,16 +39,16 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   try {
-    const prompt = buildStage3Prompt(alterRequest, currentCode, enrichedContext, genreContext, bankName);
-    const alteredCode = await chat(
+    const prompt = buildEvolutionPrompt(currentCode, enrichedContext, genreContext, bankName);
+    const evolvedCode = await chat(
       modelCodegen,
-      STAGE3_ALTER_PROMPT,
+      EVOLUTION_PROMPT,
       prompt,
       apiKey
     );
 
     // Clean up the code (remove markdown code blocks if present)
-    const cleanCode = alteredCode
+    const cleanCode = evolvedCode
       .replace(/^```(?:javascript|js|strudel)?\n?/gm, '')
       .replace(/```$/gm, '')
       .trim();
@@ -67,7 +59,7 @@ export const POST: APIRoute = async ({ request }) => {
     );
 
   } catch (error) {
-    console.error('Alter error:', error);
+    console.error('Evolution error:', error);
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }

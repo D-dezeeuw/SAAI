@@ -3,14 +3,12 @@ import Layout from '../layouts/Layout.astro';
 ---
 
 <Layout title="SAAI - Strudel Augmented Artificial Intelligence">
-  <!-- Animated gradient background -->
-  <div class="gradient-background"></div>
-
-  <!-- Background visualizations -->
+  <!-- Background visualizations (bottom to top: spectrum, scope, pianoroll, shader) -->
   <div class="viz-background">
     <canvas id="spectrum-canvas"></canvas>
     <canvas id="scope-canvas"></canvas>
     <canvas id="pianoroll-canvas"></canvas>
+    <canvas id="shader-canvas"></canvas>
   </div>
 
   <!-- Sticky header -->
@@ -20,6 +18,17 @@ import Layout from '../layouts/Layout.astro';
       <button id="ai-btn" title="AI Generate">✦</button>
       <button id="code-btn" title="Code Editor" class="active">&lt;/&gt;</button>
       <button id="alter-toggle-btn" title="Alter Code" class="active">⚙</button>
+      <span class="header-divider"></span>
+      <button id="audio-viz-btn" title="Audio Visualizers" class="active">〰</button>
+      <div class="viz-selector">
+        <button id="viz-btn" title="Background Effects" class="active">◎</button>
+        <div id="viz-dropdown" class="viz-dropdown hidden">
+          <button data-viz="none">No vis</button>
+          <button data-viz="orbs" class="active">Glowing Orbs</button>
+          <button data-viz="stars">Stars</button>
+          <button data-viz="trails">Flowing Trails</button>
+        </div>
+      </div>
     </div>
   </header>
 
@@ -35,6 +44,16 @@ import Layout from '../layouts/Layout.astro';
             <option value="hiphop-trap">Hip-Hop / Trap</option>
             <option value="acid">Acid</option>
             <option value="jazz">Jazz</option>
+          </select>
+          <select id="bank-select">
+            <option value="" selected>Drum kit</option>
+            <option value="RolandTR909">Roland TR-909</option>
+            <option value="RolandTR808">Roland TR-808</option>
+            <option value="RolandTR707">Roland TR-707</option>
+            <option value="LinnDrum">LinnDrum</option>
+            <option value="AkaiLinn">Akai Linn</option>
+            <option value="KorgM1">Korg M1</option>
+            <option value="AlesisHR16">Alesis HR16</option>
           </select>
           <input
             type="text"
@@ -66,6 +85,7 @@ import Layout from '../layouts/Layout.astro';
           placeholder="Alter: e.g., 'add more reverb', 'make it faster', 'remove hi-hats'..."
         />
         <button id="alter-btn">Alter</button>
+        <button id="evolve-btn" title="Auto-evolve the music">Evolve</button>
       </div>
     </div>
 
@@ -74,8 +94,14 @@ import Layout from '../layouts/Layout.astro';
   <script>
     import { initStrudel, evaluate, hush } from '@strudel/web';
     import { cleanupDraw, Framer } from '@strudel/draw';
-    import { createEditor, getCode, setCode, updateHighlights, clearHighlights } from '../lib/editor';
+    import { createEditor, getCode, setCode, updateHighlights, clearHighlights, updateSliderWidgets } from '../lib/editor';
+    import { sliderWithID } from '@strudel/codemirror';
     import type { EditorView } from '@codemirror/view';
+    import { initShader, updateShader, setShaderStyle, setShaderIdle, cleanupShader, type ShaderContext, type AudioData } from '../lib/shader';
+    import { CustomScope } from '../lib/customScope';
+
+    // Make sliderWithID available globally for evaluated code
+    (window as any).sliderWithID = sliderWithID;
 
     // Declare global functions made available by initStrudel
     declare function samples(source: string): Promise<void>;
@@ -83,6 +109,8 @@ import Layout from '../layouts/Layout.astro';
     declare global {
       interface Window {
         __debuggedHap?: boolean;
+        sliderWithID?: typeof sliderWithID;
+        __shaderCtx?: ShaderContext;
       }
     }
 
@@ -97,9 +125,11 @@ import Layout from '../layouts/Layout.astro';
     const contextArrow = document.getElementById('context-arrow') as HTMLSpanElement;
     const promptInput = document.getElementById('prompt-input') as HTMLInputElement;
     const genreSelect = document.getElementById('genre-select') as HTMLSelectElement;
+    const bankSelect = document.getElementById('bank-select') as HTMLSelectElement;
     const generateBtn = document.getElementById('generate-btn') as HTMLButtonElement;
     const alterInput = document.getElementById('alter-input') as HTMLInputElement;
     const alterBtn = document.getElementById('alter-btn') as HTMLButtonElement;
+    const evolveBtn = document.getElementById('evolve-btn') as HTMLButtonElement;
     const playBtn = document.getElementById('play-btn') as HTMLButtonElement;
     const resetBtn = document.getElementById('reset-btn') as HTMLButtonElement;
     const editorContainer = document.getElementById('code-editor-container') as HTMLDivElement;
@@ -107,20 +137,34 @@ import Layout from '../layouts/Layout.astro';
     const pianorollCanvas = document.getElementById('pianoroll-canvas') as HTMLCanvasElement;
     const spectrumCanvas = document.getElementById('spectrum-canvas') as HTMLCanvasElement;
     const scopeCanvas = document.getElementById('scope-canvas') as HTMLCanvasElement;
+    const shaderCanvas = document.getElementById('shader-canvas') as HTMLCanvasElement;
+    const vizBtn = document.getElementById('viz-btn') as HTMLButtonElement;
+    const vizDropdown = document.getElementById('viz-dropdown') as HTMLDivElement;
+    const vizButtons = vizDropdown.querySelectorAll('button[data-viz]') as NodeListOf<HTMLButtonElement>;
+    const audioVizBtn = document.getElementById('audio-viz-btn') as HTMLButtonElement;
+    const logoElement = document.querySelector('.header h1') as HTMLElement;
+    let currentVizStyle = 'none'; // Default style
+    let audioVizEnabled = true; // Audio visualizers (spectrum, scope, pianoroll) visible by default
+    let customScope: CustomScope | null = null; // Custom scope visualizer instance
 
-    // Example Strudel code
+    // Example Strudel code - drums in inner stack for bank switching, synths outside
+    // Note: Use 808oh for open hihat from Dirt-Samples (oh only works with drum banks)
     const exampleCode = `setcps(138/60/4)
 
 stack(
-  s("bd:5*4").gain(1.2),
-  s("~ ~ oh ~ ~ ~ oh ~ ~ ~ oh ~ ~ ~ oh ~"),
-  s("~ ~ ~ ~ cp ~ ~ ~ ~ ~ ~ ~ cp ~ ~ ~").gain(0.4),
-  s("hh*16").gain("1 0.6 0.8 0.6").room(0.4),
+  // Drums
+  stack(
+    s("bd:5*4").gain(1.2),
+    s("~ ~ 808oh ~ ~ ~ 808oh ~ ~ ~ 808oh ~ ~ ~ 808oh ~"),
+    s("~ ~ ~ ~ cp ~ ~ ~ ~ ~ ~ ~ cp ~ ~ ~").gain(0.4),
+    s("hh*16").gain("1 0.6 0.8 0.6").room(0.4)
+  ),
+  // Synths
   note("~ e1 e1 e1 ~ e1 e1 e1 ~ e1 e1 e1 ~ e1 e1 e1")
     .s("sawtooth")
     .lpf(800)
     .gain(0.7),
-  note("<[e3 ~ ~ g3 ~ ~ b3 ~ e4 ~ ~ d4 ~ b3 ~ ~] [c3 ~ ~ e3 ~ ~ g3 ~ c4 ~ ~ b3 ~ g3 ~ ~] [d3 ~ ~ f3 ~ ~ a3 ~ d4 ~ ~ c4 ~ a3 ~ ~] [b2 ~ ~ d3 ~ ~ f3 ~ b3 ~ ~ a3 ~ f3 ~ ~]>")
+  note("<[e3 ~ ~ g3 ~ ~ b3 ~ e4 ~ ~ d4 ~ b3 ~ ~] [c3 ~ ~ e3 ~ ~ g3 ~ c4 ~ ~ b3 ~ g3 ~ ~]>")
     .s("sawtooth")
     .lpf(sine.range(500, 5000).slow(8))
     .chorus(0.5)
@@ -164,7 +208,51 @@ stack(
     let highlightFramer: InstanceType<typeof Framer> | null = null;
     let lastEnrichedContext: string = '';
     let lastGenreContext: string = '';
+    let lastBankName: string = '';
     let codeOffset: number = 0; // Offset for location mapping when code is wrapped
+    let isEvolving: boolean = false;
+    let evolveInterval: ReturnType<typeof setInterval> | null = null;
+
+    // Audio interception for CustomScope
+    // Monkey-patch AudioNode.prototype.connect to intercept connections to destination
+    let scopeAnalyserNode: AnalyserNode | null = null;
+    const originalConnect = AudioNode.prototype.connect;
+
+    // @ts-ignore - Overriding connect signature
+    AudioNode.prototype.connect = function(
+      destination: AudioNode | AudioParam,
+      outputIndex?: number,
+      inputIndex?: number
+    ): AudioNode | void {
+      // Call original connect
+      const result = originalConnect.apply(this, [destination, outputIndex, inputIndex] as any);
+
+      // Check if connecting to AudioDestinationNode (the speakers)
+      if (destination instanceof AudioDestinationNode) {
+        // Create analyser if not exists, using same AudioContext
+        if (!scopeAnalyserNode || scopeAnalyserNode.context !== this.context) {
+          scopeAnalyserNode = this.context.createAnalyser();
+          scopeAnalyserNode.fftSize = 2048;
+          scopeAnalyserNode.smoothingTimeConstant = 0.3;
+          window.__scopeAnalyser = scopeAnalyserNode;
+          window.__scopeAudioContext = this.context as AudioContext;
+          console.log('[AudioInterceptor] Created scope analyser from connect() intercept', window.__scopeAnalyser);
+        }
+
+        // Also connect this node to our analyser (parallel to destination)
+        try {
+          console.log('[AudioInterceptor] Source node type:', this.constructor.name);
+          console.log('[AudioInterceptor] Source numberOfOutputs:', this.numberOfOutputs);
+          console.log('[AudioInterceptor] Source channelCount:', this.channelCount);
+          originalConnect.call(this, scopeAnalyserNode);
+          console.log('[AudioInterceptor] Successfully connected to scope analyser');
+        } catch (e) {
+          console.error('[AudioInterceptor] Connection failed:', e);
+        }
+      }
+
+      return result as any;
+    };
 
     // Base samples from dirt-samples and other sources
     const BASE_SAMPLES = new Set([
@@ -240,6 +328,38 @@ stack(
     }
 
     // Handle window resize - update canvas dimensions
+    // Helper to create a color-forcing Proxy for scope canvas context
+    const SCOPE_COLOR = '#FF00FF';
+    const SCOPE_GLOW_INTENSITY = 25;
+    const SCOPE_LINE_WIDTH = 2;
+    function createScopeCtxProxy(ctx: CanvasRenderingContext2D) {
+      return new Proxy(ctx, {
+        set(target: any, prop: string, value: any) {
+          if (prop === 'strokeStyle' || prop === 'shadowColor') {
+            value = SCOPE_COLOR;
+          }
+          // Force thinner lines
+          if (prop === 'lineWidth') {
+            value = SCOPE_LINE_WIDTH;
+          }
+          // Add glow effect
+          if (prop === 'strokeStyle') {
+            target.shadowColor = SCOPE_COLOR;
+            target.shadowBlur = SCOPE_GLOW_INTENSITY;
+          }
+          target[prop] = value;
+          return true;
+        },
+        get(target: any, prop: string) {
+          const value = target[prop];
+          if (typeof value === 'function') {
+            return value.bind(target);
+          }
+          return value;
+        }
+      });
+    }
+
     function handleResize() {
       if ((window as any).__pianorollCtx) {
         (window as any).__pianorollCtx = setupCanvas(pianorollCanvas);
@@ -248,8 +368,10 @@ stack(
         (window as any).__spectrumCtx = setupCanvas(spectrumCanvas);
       }
       if ((window as any).__scopeCtx) {
-        (window as any).__scopeCtx = setupCanvas(scopeCanvas);
+        (window as any).__scopeCtx = createScopeCtxProxy(setupCanvas(scopeCanvas));
       }
+      // Resize custom scope
+      customScope?.resize();
     }
 
     window.addEventListener('resize', handleResize);
@@ -261,10 +383,12 @@ stack(
         strudelRepl = await initStrudel({
           // Load samples from multiple sources
           prebake: async () => {
-            // Dirt-Samples for drums and percussion
+            // Dirt-Samples for drums and percussion (includes 808oh for open hi-hat)
             await samples('github:tidalcycles/Dirt-Samples/master/');
             // Piano samples from dough-samples (Salamander Grand Piano)
             await samples('https://raw.githubusercontent.com/felixroos/dough-samples/main/piano.json');
+            // Tidal drum machine samples (RolandTR909, RolandTR808, etc.) for .bank() function
+            await samples('https://raw.githubusercontent.com/felixroos/dough-samples/main/tidal-drum-machines.json');
           },
         });
         isInitialized = true;
@@ -290,15 +414,63 @@ stack(
       return null;
     }
 
+    // Extract audio data from haps for shader visualization
+    function extractAudioData(haps: any[], now: number): AudioData {
+      // Filter to active haps only
+      const activeHaps = haps.filter((h: any) => {
+        const start = h.whole?.begin ?? h.part?.begin ?? 0;
+        const end = h.whole?.end ?? h.part?.end ?? 0;
+        return now >= start && now < end;
+      });
+
+      let bassCount = 0;
+      let trebleCount = 0;
+
+      // Analyze note frequencies
+      for (const hap of activeHaps) {
+        const noteVal = hap.value?.note ?? hap.value?.n;
+        if (noteVal !== undefined) {
+          const midi = noteToMidi(noteVal);
+          if (midi !== null) {
+            if (midi < 48) bassCount++;      // Below C3
+            if (midi > 72) trebleCount++;    // Above C5
+          }
+        }
+        // Drum samples count as bass
+        const sample = hap.value?.s;
+        if (sample && (sample === 'bd' || sample.startsWith('bd:'))) {
+          bassCount++;
+        }
+      }
+
+      return {
+        intensity: Math.min(activeHaps.length / 8, 1),
+        bass: Math.min(bassCount / 3, 1),
+        treble: Math.min(trebleCount / 3, 1),
+        time: now
+      };
+    }
+
     // Draw pianoroll visualization
+    // Options: playhead at 0.02 (2% from left), smear disabled
+    const pianorollPlayhead = 0.09;
+    const pianorollSmear = false;
+
     function drawPianoroll(ctx: CanvasRenderingContext2D, haps: any[], now: number, cycles: number) {
       const width = ctx.canvas.width;
       const height = ctx.canvas.height;
       const dpr = window.devicePixelRatio || 1;
 
-      // Clear canvas
-      ctx.fillStyle = '#0a0a0a';
-      ctx.fillRect(0, 0, width, height);
+      if (pianorollSmear) {
+        // Smear effect: fade previous frame while keeping transparency
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
+        ctx.fillRect(0, 0, width, height);
+        ctx.globalCompositeOperation = 'source-over';
+      } else {
+        // Clear canvas to transparent (so shader shows through)
+        ctx.clearRect(0, 0, width, height);
+      }
 
       // Collect note events and find range
       const noteEvents: { start: number; end: number; midi: number; active: boolean }[] = [];
@@ -334,24 +506,41 @@ stack(
       maxMidi = Math.min(127, maxMidi + 2);
       const midiRange = Math.max(maxMidi - minMidi, 12);
 
-      // Time range
-      const timeStart = now - cycles * 0.25;
-      const timeEnd = now + cycles * 0.75;
+      // Time range - playhead position determines how much past/future is shown
+      const timeStart = now - cycles * pianorollPlayhead;
+      const timeEnd = now + cycles * (1 - pianorollPlayhead);
       const timeRange = timeEnd - timeStart;
 
-      // Draw notes
+      // Draw notes with glow effect
+      const PIANOROLL_ACTIVE_COLOR = '#00FFFF';
+      const PIANOROLL_INACTIVE_COLOR = '#155e75';
+      const PIANOROLL_GLOW = 20;
+
       for (const event of noteEvents) {
         const x = ((event.start - timeStart) / timeRange) * width;
         const noteWidth = ((event.end - event.start) / timeRange) * width;
         const y = height - ((event.midi - minMidi) / midiRange) * height;
         const noteHeight = Math.max(height / midiRange, 3 * dpr);
 
-        ctx.fillStyle = event.active ? '#22d3ee' : '#475569';
+        if (event.active) {
+          // Active notes: bright cyan with strong glow
+          ctx.shadowColor = PIANOROLL_ACTIVE_COLOR;
+          ctx.shadowBlur = PIANOROLL_GLOW;
+          ctx.fillStyle = PIANOROLL_ACTIVE_COLOR;
+        } else {
+          // Inactive notes: dimmer cyan with subtle glow
+          ctx.shadowColor = PIANOROLL_INACTIVE_COLOR;
+          ctx.shadowBlur = PIANOROLL_GLOW / 3;
+          ctx.fillStyle = PIANOROLL_INACTIVE_COLOR;
+        }
         ctx.fillRect(x, y - noteHeight / 2, Math.max(noteWidth, 2 * dpr), noteHeight);
       }
 
-      // Draw playhead
-      const playheadX = (cycles * 0.25 / (cycles)) * width;
+      // Reset shadow for playhead
+      ctx.shadowBlur = 0;
+
+      // Draw playhead line at playhead position
+      const playheadX = pianorollPlayhead * width;
       ctx.strokeStyle = 'rgba(236, 72, 153, 0.5)';
       ctx.lineWidth = 2 * dpr;
       ctx.beginPath();
@@ -372,13 +561,62 @@ stack(
 
         const now = strudelRepl.scheduler.now();
 
-        // Query wider arc for pianoroll (4 cycles)
+        // Query wider arc for pianoroll (4 cycles) - match playhead position
         const cycles = 4;
-        const haps = strudelRepl.scheduler.pattern.queryArc(now - cycles * 0.25, now + cycles * 0.75);
+        const haps = strudelRepl.scheduler.pattern.queryArc(now - cycles * pianorollPlayhead, now + cycles * (1 - pianorollPlayhead));
 
         // Draw pianoroll
         if (pianorollCtx) {
           drawPianoroll(pianorollCtx, haps, now, cycles);
+        }
+
+        // Update shader with audio data
+        if (window.__shaderCtx) {
+          const audioData = extractAudioData(haps, now);
+          updateShader(window.__shaderCtx, audioData);
+        }
+
+        // Update logo glow based on active notes (beat-reactive)
+        if (logoElement) {
+          // Count active haps and calculate intensity based on what's playing
+          const activeNow = haps.filter((hap: any) => {
+            const start = hap.whole?.begin ?? hap.part?.begin ?? 0;
+            const end = hap.whole?.end ?? hap.part?.end ?? 0;
+            return now >= start && now < end;
+          });
+
+          // Weight by sound type - drums/bass get more weight
+          let intensity = 0;
+          for (const hap of activeNow) {
+            const sound = hap.value?.s || '';
+            const note = hap.value?.note ?? hap.value?.n;
+            // Bass drum and low notes get more weight
+            if (sound === 'bd' || sound.includes('kick')) {
+              intensity += 1.0;
+            } else if (sound === 'sd' || sound === 'cp' || sound.includes('snare')) {
+              intensity += 0.6;
+            } else if (sound === 'hh' || sound === 'oh' || sound.includes('hat')) {
+              intensity += 0.2;
+            } else if (note !== undefined) {
+              // Melodic notes - lower notes = more intensity
+              const midi = typeof note === 'number' ? note : 60;
+              intensity += midi < 50 ? 0.5 : 0.3;
+            } else {
+              intensity += 0.3;
+            }
+          }
+
+          // Clamp and normalize
+          intensity = Math.min(intensity, 2) / 2; // Max out at 2, normalize to 0-1
+
+          // Map to glow - smaller & brighter at rest, larger & softer on beat
+          const minGlow = 0;
+          const maxGlow = 10;
+          const glowSize = minGlow + intensity * (maxGlow - minGlow);
+          // Invert opacity: brighter when small, softer when large
+          const glowOpacity = 0.8 - intensity * 0.3;
+
+          logoElement.style.filter = `drop-shadow(0 0 ${glowSize}px rgba(255, 255, 255, ${glowOpacity}))`;
         }
 
         // Extract locations from active haps for code highlighting
@@ -390,9 +628,10 @@ stack(
 
         const highlights: {from: number, to: number}[] = [];
         for (const hap of activeHaps) {
-          // Debug: log hap structure to understand location format
+          // Debug: log hap structure (without JSON.stringify due to BigInt)
           if (activeHaps.length > 0 && !window.__debuggedHap) {
-            console.log('Sample hap:', JSON.stringify(hap, null, 2));
+            console.log('Sample hap context:', hap.context);
+            console.log('Sample hap locations:', hap.context?.locations);
             window.__debuggedHap = true;
           }
 
@@ -421,11 +660,21 @@ stack(
       clearHighlights(editor);
       window.__debuggedHap = false; // Reset debug flag for next play
 
-      // Clear pianoroll canvas
+      // Clear pianoroll canvas (transparent to show shader behind)
       const pianorollCtx = (window as any).__pianorollCtx as CanvasRenderingContext2D;
       if (pianorollCtx) {
-        pianorollCtx.fillStyle = '#0a0a0a';
-        pianorollCtx.fillRect(0, 0, pianorollCtx.canvas.width, pianorollCtx.canvas.height);
+        pianorollCtx.clearRect(0, 0, pianorollCtx.canvas.width, pianorollCtx.canvas.height);
+      }
+
+      // Clear scope canvas
+      const scopeCtx = (window as any).__scopeCtx as CanvasRenderingContext2D;
+      if (scopeCtx) {
+        scopeCtx.clearRect(0, 0, scopeCtx.canvas.width, scopeCtx.canvas.height);
+      }
+
+      // Reset logo glow to minimal
+      if (logoElement) {
+        logoElement.style.filter = 'drop-shadow(0 0 2px rgba(255, 255, 255, 0.3))';
       }
     }
 
@@ -456,11 +705,15 @@ stack(
         }
       }
 
+      // Get selected bank and store it for alter/evolve operations
+      const bankName = bankSelect.value;
+      lastBankName = bankName;
+
       try {
         const response = await fetch('/api/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message, currentCode: getCode(editor), genreContext })
+          body: JSON.stringify({ message, currentCode: getCode(editor), genreContext, bankName })
         });
 
         if (!response.ok || !response.body) {
@@ -531,7 +784,8 @@ stack(
             alterRequest,
             currentCode,
             enrichedContext: lastEnrichedContext,
-            genreContext: lastGenreContext
+            genreContext: lastGenreContext,
+            bankName: lastBankName
           })
         });
 
@@ -552,6 +806,54 @@ stack(
       }
     }
 
+    async function evolveCode() {
+      const currentCode = getCode(editor);
+      if (!currentCode || currentCode.startsWith('//')) {
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/evolve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            currentCode,
+            enrichedContext: lastEnrichedContext,
+            genreContext: lastGenreContext,
+            bankName: lastBankName
+          })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Evolution failed');
+        }
+
+        setCode(editor, data.code);
+
+      } catch (error) {
+        console.error('Evolution error:', error);
+      }
+    }
+
+    function toggleEvolution() {
+      isEvolving = !isEvolving;
+      evolveBtn.classList.toggle('active', isEvolving);
+
+      if (isEvolving) {
+        // Immediately trigger one evolution
+        evolveCode();
+        // Then continue every 10 seconds
+        evolveInterval = setInterval(evolveCode, 10000);
+      } else {
+        if (evolveInterval) {
+          clearInterval(evolveInterval);
+          evolveInterval = null;
+        }
+      }
+    }
+
     async function playCode() {
       const code = getCode(editor).trim();
       if (!code || code.startsWith('//')) {
@@ -569,7 +871,34 @@ stack(
       // Setup visualization canvases
       (window as any).__pianorollCtx = setupCanvas(pianorollCanvas);
       (window as any).__spectrumCtx = setupCanvas(spectrumCanvas);
-      (window as any).__scopeCtx = setupCanvas(scopeCanvas);
+
+      // Wrap scope canvas context with a Proxy to force magenta color
+      // This bypasses Strudel's bug that overwrites the config color
+      (window as any).__scopeCtx = createScopeCtxProxy(setupCanvas(scopeCanvas));
+
+      // Note: CustomScope uses window.__scopeAnalyser which is set by AudioContext interception
+
+      // Initialize custom scope if not exists
+      if (!customScope) {
+        customScope = new CustomScope(scopeCanvas, {
+          color: '#FF00FF',
+          thickness: 6,
+          scale: 0.25,
+          pos: 0.5,
+          align: true,
+          glow: true,
+          glowIntensity: 15
+        });
+      }
+
+      // Initialize shader if not already running and a style is selected
+      if (!window.__shaderCtx && currentVizStyle !== 'none') {
+        try {
+          window.__shaderCtx = initShader(shaderCanvas, currentVizStyle);
+        } catch (e) {
+          console.warn('Shader initialization failed:', e);
+        }
+      }
 
       // Check if code has multiple statements (setbpm, setcps, etc.)
       // In that case, we need to append visualization differently
@@ -582,23 +911,35 @@ stack(
         codeOffset = 0;
         vizCode = code.replace(
           /(\)\s*)$/,
-          `$1.analyze('spectrum')
+          `$1.analyze('spectrum').analyze('scope')
             .spectrum({ id: 'spectrum', ctx: window.__spectrumCtx, thickness: 2 })
-            .scope({ id: 'scope', ctx: window.__scopeCtx, thickness: 1.5, color: 'cyan' })`
+            .scope({ id: 'scope', ctx: window.__scopeCtx, thickness: 6, scale: 0.25 })`
         );
       } else {
         // Single expression - wrap it with parentheses
         // This adds 1 character offset for the opening (
         codeOffset = 1;
         vizCode = `(${code})
-          .analyze('spectrum')
+          .analyze('spectrum').analyze('scope')
           .spectrum({ id: 'spectrum', ctx: window.__spectrumCtx, thickness: 2 })
-          .scope({ id: 'scope', ctx: window.__scopeCtx, thickness: 1.5, color: 'cyan' })`;
+          .scope({ id: 'scope', ctx: window.__scopeCtx, thickness: 6, scale: 0.25 })`;
       }
 
       try {
-        await evaluate(vizCode);
+        const result = await evaluate(vizCode);
+
+        // Debug: log what evaluate returns
+        console.log('Evaluate result:', result);
+        console.log('Widgets found:', result?.widgets);
+
+        // If widgets were found (sliders, etc.), render them in the editor
+        if (result?.widgets?.length > 0) {
+          console.log('Rendering widgets:', result.widgets);
+          updateSliderWidgets(editor, result.widgets);
+        }
+
         startHighlighting();
+        // customScope?.start(); // Disabled to test Strudel's built-in scope
         isPlaying = true;
         playBtn.textContent = '■';
         playBtn.className = 'playing';
@@ -607,8 +948,15 @@ stack(
         console.warn('Visualization injection failed, trying without:', error);
         try {
           codeOffset = 0; // No wrapping in fallback
-          await evaluate(code);
+          const result = await evaluate(code);
+
+          // If widgets were found (sliders, etc.), render them in the editor
+          if (result?.widgets?.length > 0) {
+            updateSliderWidgets(editor, result.widgets);
+          }
+
           startHighlighting();
+          // customScope?.start(); // Disabled to test Strudel's built-in scope
           isPlaying = true;
           playBtn.textContent = '■';
           playBtn.className = 'playing';
@@ -632,9 +980,15 @@ stack(
         hush();
         cleanupDraw(true);
         stopHighlighting();
+        customScope?.stop();
         isPlaying = false;
         playBtn.textContent = '▶';
         playBtn.className = '';
+
+        // Set shader to idle mode (subtle animation)
+        if (window.__shaderCtx) {
+          setShaderIdle(window.__shaderCtx);
+        }
       }
     }
 
@@ -722,6 +1076,56 @@ stack(
       panelsVisible = !panelsVisible;
     }
 
+    // Handle bank dropdown change - update code and restart playback
+    function handleBankChange() {
+      const newBank = bankSelect.value;
+      const wasPlaying = isPlaying;
+
+      // Stop current playback
+      if (isPlaying) {
+        stopCode();
+      }
+
+      // Get current code and update the bank
+      let code = getCode(editor);
+      let codeChanged = false;
+
+      if (newBank) {
+        if (code.match(/\.bank\("[^"]*"\)/)) {
+          // Replace existing bank with new one
+          code = code.replace(/\.bank\("[^"]*"\)/, `.bank("${newBank}")`);
+          codeChanged = true;
+        } else {
+          // No .bank() exists - try to add one to the inner drum stack
+          // Look for pattern: ) followed by , followed by synth content (// Synths or note()
+          const drumStackPattern = /\)(\s*,\s*\n\s*)(\/\/ Synths|note\()/;
+          if (code.match(drumStackPattern)) {
+            code = code.replace(drumStackPattern, `).bank("${newBank}")$1$2`);
+            codeChanged = true;
+          }
+        }
+      } else {
+        // Remove .bank() if "Drum machine" (no bank) is selected
+        if (code.match(/\.bank\("[^"]*"\)/)) {
+          code = code.replace(/\.bank\("[^"]*"\)/, '');
+          codeChanged = true;
+        }
+      }
+
+      // Update the code in editor if changed
+      if (codeChanged) {
+        setCode(editor, code);
+      }
+
+      // Update the stored bank name
+      lastBankName = newBank;
+
+      // Restart playback if it was playing
+      if (wasPlaying) {
+        playCode();
+      }
+    }
+
     // Event listeners
     contextHeader.addEventListener('click', toggleContextSection);
     aiBtn.addEventListener('click', toggleGeneratePanel);
@@ -729,8 +1133,74 @@ stack(
     alterToggleBtn.addEventListener('click', toggleAlterSection);
     generateBtn.addEventListener('click', generateCode);
     alterBtn.addEventListener('click', alterCode);
+    evolveBtn.addEventListener('click', toggleEvolution);
     playBtn.addEventListener('click', togglePlay);
     resetBtn.addEventListener('click', resetCode);
+    bankSelect.addEventListener('change', handleBankChange);
+
+    // Toggle visualizer dropdown
+    vizBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      vizDropdown.classList.toggle('hidden');
+    });
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', () => {
+      vizDropdown.classList.add('hidden');
+    });
+
+    // Handle visualizer style selection
+    vizButtons.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const newStyle = btn.dataset.viz!;
+
+        // Update active state
+        vizButtons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentVizStyle = newStyle;
+
+        // Update button appearance
+        vizBtn.classList.toggle('active', newStyle !== 'none');
+
+        // Close dropdown
+        vizDropdown.classList.add('hidden');
+
+        if (newStyle === 'none') {
+          // Cleanup shader when switching to "No vis"
+          if (window.__shaderCtx) {
+            cleanupShader(window.__shaderCtx);
+            window.__shaderCtx = undefined;
+            // Clear the canvas
+            const gl = shaderCanvas.getContext('webgl2');
+            if (gl) {
+              gl.clearColor(0, 0, 0, 0);
+              gl.clear(gl.COLOR_BUFFER_BIT);
+            }
+          }
+        } else if (window.__shaderCtx) {
+          // Switch between styles
+          setShaderStyle(window.__shaderCtx, newStyle);
+        } else {
+          // Initialize shader when switching from "No vis" to a style
+          try {
+            window.__shaderCtx = initShader(shaderCanvas, newStyle);
+            setShaderIdle(window.__shaderCtx);
+          } catch (e) {
+            console.warn('Shader initialization failed:', e);
+          }
+        }
+      });
+    });
+
+    // Toggle audio visualizers (spectrum, scope, pianoroll)
+    audioVizBtn.addEventListener('click', () => {
+      audioVizEnabled = !audioVizEnabled;
+      audioVizBtn.classList.toggle('active', audioVizEnabled);
+      spectrumCanvas.classList.toggle('hidden', !audioVizEnabled);
+      scopeCanvas.classList.toggle('hidden', !audioVizEnabled);
+      pianorollCanvas.classList.toggle('hidden', !audioVizEnabled);
+    });
 
     alterInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
@@ -765,5 +1235,16 @@ stack(
 
     // Initialize on load
     init();
+
+    // Initialize shader on page load if a style is selected
+    if (currentVizStyle !== 'none') {
+      try {
+        window.__shaderCtx = initShader(shaderCanvas, currentVizStyle);
+        setShaderIdle(window.__shaderCtx);
+        vizBtn.classList.add('active');
+      } catch (e) {
+        console.warn('Shader initialization failed:', e);
+      }
+    }
   </script>
 </Layout>

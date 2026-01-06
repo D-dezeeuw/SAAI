@@ -1,4 +1,33 @@
-export const STAGE1_SYSTEM_PROMPT = `You are a music producer assistant that transforms casual user requests into detailed Strudel live-coding prompts.
+const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
+async function chat(model, systemPrompt, userPrompt, apiKey) {
+  const messages = [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: userPrompt }
+  ];
+  const response = await fetch(OPENROUTER_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+      "HTTP-Referer": "https://strudel-ai.local",
+      "X-Title": "Strudel AI"
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature: 0.7,
+      max_tokens: 2e3
+    })
+  });
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`OpenRouter API error: ${response.status} - ${error}`);
+  }
+  const data = await response.json();
+  return data.choices[0]?.message?.content || "";
+}
+
+const STAGE1_SYSTEM_PROMPT = `You are a music producer assistant that transforms casual user requests into detailed Strudel live-coding prompts.
 
 Your job is to take a user's informal music request and expand it into a detailed, technical prompt with proper music production considerations.
 
@@ -30,8 +59,7 @@ Transform the request into a detailed prompt that specifies:
 CRITICAL: Specify that ALL patterns must use the same step count to stay in sync.
 
 Be specific and production-focused. Output only the enriched prompt.`;
-
-export const STAGE2_SYSTEM_PROMPT = `You are an expert Strudel live-coding assistant and music producer.
+const STAGE2_SYSTEM_PROMPT = `You are an expert Strudel live-coding assistant and music producer.
 
 ## CRITICAL: Pattern Structure
 ALL patterns MUST be wrapped with s() or sound() for samples:
@@ -179,19 +207,17 @@ REMEMBER: Synths (sawtooth, sine, square, triangle, supersaw, supersquare) are W
 - For repetition use mini-notation *n syntax (e.g., "bd*4") or .fast()/.slow(), NOT .repeat()
 - setcps() goes BEFORE the pattern on its own line, NEVER chained!
 - Output ONLY valid Strudel code, no markdown or explanations`;
-
-export function buildStage1Prompt(userMessage: string, currentCode: string): string {
+function buildStage1Prompt(userMessage, currentCode) {
   return `Current code:
 \`\`\`
-${currentCode || '// No existing code'}
+${currentCode || "// No existing code"}
 \`\`\`
 
 User request: "${userMessage}"
 
 Transform this into a detailed Strudel prompt.`;
 }
-
-export const STAGE3_ALTER_PROMPT = `You are a Strudel code editor that makes PRECISE, MINIMAL adjustments to existing code.
+const STAGE3_ALTER_PROMPT = `You are a Strudel code editor that makes PRECISE, MINIMAL adjustments to existing code.
 
 ## Your Role
 You receive working Strudel code and a user request to modify it. Make ONLY the changes requested - do not rewrite or restructure unless necessary.
@@ -232,28 +258,38 @@ If the code uses .bank(), it should ONLY be on drum patterns in an inner stack:
 - Keep drums in inner stack with .bank()
 - Keep synths (sawtooth, sine, etc.) OUTSIDE the banked stack
 - Never apply .bank() to synth patterns`;
+function buildStage3Prompt(alterRequest, currentCode, enrichedContext, genreContext, bankName) {
+  let prompt = `## Current Strudel Code:
+\`\`\`
+${currentCode}
+\`\`\`
 
-export function buildStage3Prompt(alterRequest: string, currentCode: string, enrichedContext?: string, genreContext?: string, bankName?: string): string {
-  let prompt = `## Current Strudel Code:\n\`\`\`\n${currentCode}\n\`\`\`\n\n`;
-
+`;
   if (enrichedContext) {
-    prompt += `## Original Context:\n${enrichedContext}\n\n`;
-  }
+    prompt += `## Original Context:
+${enrichedContext}
 
+`;
+  }
   if (genreContext) {
-    prompt += `## Genre Reference:\n${genreContext}\n\n`;
-  }
+    prompt += `## Genre Reference:
+${genreContext}
 
+`;
+  }
   if (bankName) {
-    prompt += `## Drum Bank\nKeep the .bank("${bankName}") on the inner drum stack. Remember: drums use .bank(), synths do NOT.\n\n`;
+    prompt += `## Drum Bank
+Keep the .bank("${bankName}") on the inner drum stack. Remember: drums use .bank(), synths do NOT.
+
+`;
   }
+  prompt += `## User Request:
+${alterRequest}
 
-  prompt += `## User Request:\n${alterRequest}\n\nModify the code to fulfill this request. Output ONLY the modified code.`;
-
+Modify the code to fulfill this request. Output ONLY the modified code.`;
   return prompt;
 }
-
-export const EVOLUTION_PROMPT = `You are a Strudel code evolver that makes SUBTLE, CREATIVE changes to evolve music over time.
+const EVOLUTION_PROMPT = `You are a Strudel code evolver that makes SUBTLE, CREATIVE changes to evolve music over time.
 
 ## Your Role
 You receive working Strudel code and should make a SMALL, INTERESTING evolution to it. Think of it as a DJ subtly tweaking the music to keep it fresh.
@@ -287,36 +323,42 @@ You receive working Strudel code and should make a SMALL, INTERESTING evolution 
 - All patterns in stack() need same step count
 - Don't invent non-existent functions
 - If code uses .bank(), keep it on the inner drum stack only (not on synths)`;
+function buildEvolutionPrompt(currentCode, enrichedContext, genreContext, bankName) {
+  let prompt = `## Current Strudel Code:
+\`\`\`
+${currentCode}
+\`\`\`
 
-export function buildEvolutionPrompt(currentCode: string, enrichedContext?: string, genreContext?: string, bankName?: string): string {
-  let prompt = `## Current Strudel Code:\n\`\`\`\n${currentCode}\n\`\`\`\n\n`;
-
+`;
   if (enrichedContext) {
-    prompt += `## Original Musical Intent:\n${enrichedContext}\n\n`;
-  }
+    prompt += `## Original Musical Intent:
+${enrichedContext}
 
+`;
+  }
   if (genreContext) {
-    prompt += `## Genre Reference:\n${genreContext}\n\n`;
-  }
+    prompt += `## Genre Reference:
+${genreContext}
 
+`;
+  }
   if (bankName) {
-    prompt += `## Drum Bank\nKeep the .bank("${bankName}") on the inner drum stack. Do NOT apply bank to synth patterns.\n\n`;
+    prompt += `## Drum Bank
+Keep the .bank("${bankName}") on the inner drum stack. Do NOT apply bank to synth patterns.
+
+`;
   }
-
   prompt += `Evolve this code with ONE small, subtle change that keeps the music interesting. Output ONLY the modified code.`;
-
   return prompt;
 }
-
-export function buildStage2Prompt(enrichedPrompt: string, currentCode: string, genreContext?: string, bankName?: string): string {
-  let prompt = '';
-
-  // Add genre-specific reference if provided
+function buildStage2Prompt(enrichedPrompt, currentCode, genreContext, bankName) {
+  let prompt = "";
   if (genreContext) {
-    prompt += `## Genre Reference (use these patterns and techniques):\n${genreContext}\n\n`;
-  }
+    prompt += `## Genre Reference (use these patterns and techniques):
+${genreContext}
 
-  // Add bank instruction if provided
+`;
+  }
   if (bankName) {
     prompt += `## Drum Bank
 IMPORTANT: Group all drum patterns (s("bd"), s("hh"), s("sd"), s("cp"), s("oh"), etc.) in an INNER stack() and add .bank("${bankName}") to that inner stack ONLY.
@@ -334,13 +376,18 @@ stack(
 
 `;
   }
-
-  // Add current code context if provided
   if (currentCode) {
-    prompt += `Current code to modify or build upon:\n\`\`\`\n${currentCode}\n\`\`\`\n\n`;
+    prompt += `Current code to modify or build upon:
+\`\`\`
+${currentCode}
+\`\`\`
+
+`;
   }
+  prompt += `Task: ${enrichedPrompt}
 
-  prompt += `Task: ${enrichedPrompt}\n\nGenerate valid Strudel code following the genre reference patterns above. Output ONLY the code, no explanations or markdown.`;
-
+Generate valid Strudel code following the genre reference patterns above. Output ONLY the code, no explanations or markdown.`;
   return prompt;
 }
+
+export { EVOLUTION_PROMPT as E, STAGE3_ALTER_PROMPT as S, buildEvolutionPrompt as a, buildStage3Prompt as b, chat as c, buildStage1Prompt as d, STAGE1_SYSTEM_PROMPT as e, buildStage2Prompt as f, STAGE2_SYSTEM_PROMPT as g };

@@ -3,6 +3,10 @@ import { EditorState, StateField, StateEffect } from '@codemirror/state';
 import { javascript } from '@codemirror/lang-javascript';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { defaultKeymap, historyKeymap, history } from '@codemirror/commands';
+import { sliderPlugin, updateSliderWidgets } from '@strudel/codemirror';
+
+// Re-export for use in index.astro
+export { updateSliderWidgets };
 
 // Effect to update highlighted ranges
 export const setHighlights = StateEffect.define<{from: number, to: number}[]>();
@@ -88,6 +92,7 @@ export function createEditor(
     strudelTheme,
     oneDark,
     highlightField,
+    sliderPlugin,
     history(),
     keymap.of([...defaultKeymap, ...historyKeymap]),
     EditorView.lineWrapping,

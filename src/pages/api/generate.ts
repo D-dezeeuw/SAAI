@@ -19,7 +19,7 @@ export const POST: APIRoute = async ({ request }) => {
     );
   }
 
-  let body: { message: string; currentCode: string; genreContext?: string };
+  let body: { message: string; currentCode: string; genreContext?: string; bankName?: string };
   try {
     body = await request.json();
   } catch {
@@ -29,7 +29,7 @@ export const POST: APIRoute = async ({ request }) => {
     );
   }
 
-  const { message, currentCode, genreContext } = body;
+  const { message, currentCode, genreContext, bankName } = body;
 
   if (!message) {
     return new Response(
@@ -59,7 +59,7 @@ export const POST: APIRoute = async ({ request }) => {
         send('stage1', { enrichedPrompt });
 
         // Stage 2: Generate Strudel code from enriched prompt
-        const stage2Prompt = buildStage2Prompt(enrichedPrompt, currentCode, genreContext);
+        const stage2Prompt = buildStage2Prompt(enrichedPrompt, currentCode, genreContext, bankName);
         const generatedCode = await chat(
           modelCodegen,
           STAGE2_SYSTEM_PROMPT,

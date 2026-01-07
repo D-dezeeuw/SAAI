@@ -1,4 +1,4 @@
-SAAI: Strudel Augmented Artificial Intelligence
+# SAAI: Strudel Augmented Artificial Intelligence
 
 This project is set up as a fun toy to play around with.
 You can select some values, and query the AI to generate music patterns for you.

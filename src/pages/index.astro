@@ -15,7 +15,7 @@ import Layout from '../layouts/Layout.astro';
   <header class="header">
     <h1 title="Strudel Augmented Artificial Intelligence">SAAI</h1>
     <div class="header-controls">
-      <button id="ai-btn" title="AI Generate">✦</button>
+      <button id="ai-btn" class="active" title="AI Generate">✦</button>
       <button id="code-btn" title="Code Editor" class="active">&lt;/&gt;</button>
       <button id="alter-toggle-btn" title="Alter Code" class="active">⚙</button>
       <span class="header-divider"></span>
@@ -34,7 +34,7 @@ import Layout from '../layouts/Layout.astro';
 
   <!-- UI on top -->
   <div class="container">
-    <div id="generate-panel" class="generate-panel hidden">
+    <div id="generate-panel" class="generate-panel">
       <div class="input-section">
         <div class="input-group">
           <select id="genre-select">
@@ -64,12 +64,12 @@ import Layout from '../layouts/Layout.astro';
         </div>
       </div>
 
-      <div class="context-section">
+      <div class="context-section hidden" id="context-section">
         <div class="context-header" id="context-header">
-          <span>AI Context (Stage 1 output)</span>
+          <span>✦ AI Context</span>
           <span class="context-arrow collapsed" id="context-arrow">▼</span>
         </div>
-        <pre id="context-display" class="collapsed">// The enriched prompt will appear here...</pre>
+        <pre id="context-display" class="collapsed"></pre>
       </div>
     </div>
 
@@ -78,31 +78,40 @@ import Layout from '../layouts/Layout.astro';
         <button id="stop-btn" title="Reset">↺</button>
         <button id="play-btn" title="Play">▶</button>
       </div>
-      <div class="alter-section">
+    </div>
+    <div class="alter-section">
         <input
           type="text"
           id="alter-input"
           placeholder="Alter: e.g., 'add more reverb', 'make it faster', 'remove hi-hats'..."
         />
-        <button id="alter-btn">Alter</button>
-        <button id="evolve-btn" title="Auto-evolve the music">Evolve</button>
+        <button id="alter-btn">Go!</button>
+        <button id="evolve-btn" title="Auto">✧</button>
+        <button id="alter-play-btn" class="alter-play-btn hidden" title="Play/Pause (K)">▶</button>
       </div>
-    </div>
 
   </div>
 
-  <!-- Info button (bottom-left) -->
-  <button id="info-btn" class="info-btn" title="Keyboard Shortcuts">
-    <span>i</span>
-  </button>
+  <!-- Bottom-left buttons -->
+  <div class="bottom-left-btns">
+    <button id="info-btn" class="info-btn" title="Keyboard Shortcuts">
+      <span>i</span>
+    </button>
+    <button id="stats-btn" class="stats-btn" title="Token Usage">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+      </svg>
+    </button>
+  </div>
 
   <!-- Shortcuts popup -->
   <div id="shortcuts-popup" class="shortcuts-popup hidden">
     <div class="shortcuts-header">
-      <span>Keyboard Shortcuts</span>
+      <span>Info</span>
       <button id="shortcuts-close" class="shortcuts-close">&times;</button>
     </div>
     <div class="shortcuts-list">
+      <span class="shortcuts-header">Keyboard Shortcuts</span>
       <div class="shortcut-item">
         <kbd>K</kbd>
         <span>Play / Stop</span>
@@ -133,7 +142,37 @@ import Layout from '../layouts/Layout.astro';
       </div>
     </div>
     <div class="shortcuts-footer">
-      Dan de Zeeuw - Neko Media
+      <span>Dan de Zeeuw - Neko Media</span>
+      <a href="https://github.com/D-dezeeuw/SAAI" target="_blank" rel="noopener noreferrer" class="github-link" title="View on GitHub">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+        </svg>
+      </a>
+    </div>
+  </div>
+
+  <!-- Token usage popup -->
+  <div id="token-popup" class="token-popup hidden">
+    <div class="token-popup-header">
+      <span>Token Usage</span>
+      <button id="token-popup-close" class="shortcuts-close">&times;</button>
+    </div>
+    <div class="token-popup-content">
+      <div class="token-stat-row">
+        <span class="token-stat-label">Input Tokens</span>
+        <span id="token-input-display" class="token-stat-value">0</span>
+      </div>
+      <div class="token-stat-row">
+        <span class="token-stat-label">Output Tokens</span>
+        <span id="token-output-display" class="token-stat-value">0</span>
+      </div>
+      <div class="token-stat-row total">
+        <span class="token-stat-label">Estimated Cost</span>
+        <span id="token-cost-display" class="token-stat-value">$0.0000</span>
+      </div>
+    </div>
+    <div class="token-popup-footer">
+      <button id="reset-tokens" class="reset-tokens-btn">Reset Counters</button>
     </div>
   </div>
 
@@ -143,16 +182,18 @@ import Layout from '../layouts/Layout.astro';
   <script>
     import { initStrudel, evaluate, hush, getAudioContext, getAnalyserById } from '@strudel/web';
     import { cleanupDraw, Framer } from '@strudel/draw';
-    import { createEditor, getCode, setCode, updateHighlights, clearHighlights, updateSliderWidgets } from '../lib/editor';
-    import { sliderWithID } from '@strudel/codemirror';
+    import { createEditor, getCode, setCode, updateHighlights, clearHighlights, updateSliderWidgets, updateWidgets } from '../lib/editor';
+    import { sliderWithID, slider } from '@strudel/codemirror';
     import type { EditorView } from '@codemirror/view';
     import { initShader, updateShader, setShaderStyle, setShaderIdle, cleanupShader, type ShaderContext, type AudioData } from '../lib/shader';
     import { CustomScope } from '../lib/customScope';
     import { CustomSpectrum } from '../lib/customSpectrum';
     import { APP_CONFIG } from '../lib/appConfig';
 
-    // Make sliderWithID available globally for evaluated code
+    // Make slider functions available globally for evaluated code
+    // These are needed by the transpiler which converts slider() to sliderWithID()
     (window as any).sliderWithID = sliderWithID;
+    (window as any).slider = slider;
 
     // Declare global functions made available by initStrudel
     declare function samples(source: string): Promise<void>;
@@ -161,6 +202,7 @@ import Layout from '../layouts/Layout.astro';
       interface Window {
         __debuggedHap?: boolean;
         sliderWithID?: typeof sliderWithID;
+        slider?: typeof slider;
         __shaderCtx?: ShaderContext;
       }
     }
@@ -174,6 +216,7 @@ import Layout from '../layouts/Layout.astro';
     const alterSection = document.querySelector('.alter-section') as HTMLDivElement;
     const contextHeader = document.getElementById('context-header') as HTMLDivElement;
     const contextArrow = document.getElementById('context-arrow') as HTMLSpanElement;
+    const contextSection = document.getElementById('context-section') as HTMLDivElement;
     const promptInput = document.getElementById('prompt-input') as HTMLInputElement;
     const genreSelect = document.getElementById('genre-select') as HTMLSelectElement;
     const bankSelect = document.getElementById('bank-select') as HTMLSelectElement;
@@ -182,6 +225,7 @@ import Layout from '../layouts/Layout.astro';
     const alterBtn = document.getElementById('alter-btn') as HTMLButtonElement;
     const evolveBtn = document.getElementById('evolve-btn') as HTMLButtonElement;
     const playBtn = document.getElementById('play-btn') as HTMLButtonElement;
+    const alterPlayBtn = document.getElementById('alter-play-btn') as HTMLButtonElement;
     const stopBtn = document.getElementById('stop-btn') as HTMLButtonElement;
     const editorContainer = document.getElementById('code-editor-container') as HTMLDivElement;
     const contextDisplay = document.getElementById('context-display') as HTMLPreElement;
@@ -199,6 +243,9 @@ import Layout from '../layouts/Layout.astro';
     let audioVizEnabled = APP_CONFIG.audioVisualizersEnabled; // Audio visualizers state from config
     let customScope: CustomScope | null = null; // Custom scope visualizer instance
     let customSpectrum: CustomSpectrum | null = null; // Custom spectrum visualizer instance
+
+    // Mobile detection - use lighter visualizers on mobile
+    const isMobile = window.matchMedia('(max-width: 768px)').matches;
 
     // Default Strudel code from config
     const exampleCode = APP_CONFIG.defaultCode;
@@ -221,8 +268,8 @@ import Layout from '../layouts/Layout.astro';
       }, duration);
     }
 
-    // Handle code changes - stop and restart music
-    function handleCodeChange() {
+    // Handle code changes - hot-swap the pattern without restarting
+    async function handleCodeChange() {
       if (!isPlaying) return;
 
       // Clear any pending timer
@@ -230,16 +277,69 @@ import Layout from '../layouts/Layout.astro';
         clearTimeout(codeChangeTimer);
       }
 
-      // Stop the music
-      if (isInitialized) {
-        hush();
-        stopHighlighting();
+      // Debounce the evaluation to avoid rapid re-evaluations while typing
+      codeChangeTimer = setTimeout(async () => {
+        await updatePattern();
+      }, 200);
+    }
+
+    // Hot-swap the pattern without stopping the scheduler
+    async function updatePattern() {
+      const code = getCode(editor).trim();
+      if (!code) return;
+
+      // Check for and load any missing samples
+      await ensureSamplesLoaded(code);
+
+      // Add .analyze('viz') if needed (same logic as playCode)
+      const alreadyHasAnalyze = /\.analyze\s*\(\s*['"]viz['"]\s*\)/.test(code);
+
+      let vizCode: string;
+      if (alreadyHasAnalyze) {
+        codeOffset = 0;
+        vizCode = code;
+      } else {
+        const hasMultipleStatements = /^(setbpm|setcps|setBpm|setCps)\s*\(/m.test(code);
+        if (hasMultipleStatements) {
+          codeOffset = 0;
+          vizCode = code.replace(/(\)\s*)$/, `$1.analyze('viz')`);
+        } else {
+          codeOffset = 1;
+          vizCode = `(${code}).analyze('viz')`;
+        }
       }
 
-      // Restart after 0.2 seconds
-      codeChangeTimer = setTimeout(() => {
-        playCode();
-      }, 200);
+      try {
+        const result = await evaluate(vizCode);
+
+        if (!result) {
+          editorContainer.classList.add('error');
+          showToast();
+          return;
+        }
+
+        // Code is valid - remove error state
+        editorContainer.classList.remove('error');
+
+        // Update widgets if any - widgets are stored in strudelRepl.state, not in result
+        // Adjust positions by codeOffset since widgets have positions from wrapped code
+        const widgets = strudelRepl?.state?.widgets;
+        if (widgets?.length > 0) {
+          const adjustedWidgets = widgets.map((w: any) => ({
+            ...w,
+            from: w.from - codeOffset,
+            to: w.to - codeOffset,
+          }));
+          const sliders = adjustedWidgets.filter((w: any) => w.type === 'slider');
+          const blockWidgets = adjustedWidgets.filter((w: any) => w.type !== 'slider');
+          if (sliders.length > 0) updateSliderWidgets(editor, sliders);
+          if (blockWidgets.length > 0) updateWidgets(editor, blockWidgets);
+        }
+      } catch (error) {
+        console.error('Pattern update error:', error);
+        editorContainer.classList.add('error');
+        showToast();
+      }
     }
 
     // Set default values from config
@@ -267,6 +367,55 @@ import Layout from '../layouts/Layout.astro';
     let codeOffset: number = 0; // Offset for location mapping when code is wrapped
     let isEvolving: boolean = false;
     let evolveInterval: ReturnType<typeof setInterval> | null = null;
+
+    // Token tracking state
+    let tokenTotals = {
+      totalInputTokens: 0,
+      totalOutputTokens: 0
+    };
+
+    // Pricing constants (per million tokens)
+    const INPUT_COST_PER_M = 0.50;
+    const OUTPUT_COST_PER_M = 3.00;
+
+    // Token tracking helper functions
+    function updateTokenTotals(usage: { promptTokens: number; completionTokens: number }) {
+      tokenTotals.totalInputTokens += usage.promptTokens;
+      tokenTotals.totalOutputTokens += usage.completionTokens;
+      updateTokenDisplay();
+    }
+
+    function calculateCost(): number {
+      const inputCost = (tokenTotals.totalInputTokens / 1_000_000) * INPUT_COST_PER_M;
+      const outputCost = (tokenTotals.totalOutputTokens / 1_000_000) * OUTPUT_COST_PER_M;
+      return inputCost + outputCost;
+    }
+
+    function formatTokenCount(count: number): string {
+      if (count >= 1_000_000) return (count / 1_000_000).toFixed(2) + 'M';
+      if (count >= 1_000) return (count / 1_000).toFixed(1) + 'K';
+      return count.toString();
+    }
+
+    function updateTokenDisplay() {
+      const tokenInputDisplay = document.getElementById('token-input-display');
+      const tokenOutputDisplay = document.getElementById('token-output-display');
+      const tokenCostDisplay = document.getElementById('token-cost-display');
+      if (tokenInputDisplay) {
+        tokenInputDisplay.textContent = formatTokenCount(tokenTotals.totalInputTokens);
+      }
+      if (tokenOutputDisplay) {
+        tokenOutputDisplay.textContent = formatTokenCount(tokenTotals.totalOutputTokens);
+      }
+      if (tokenCostDisplay) {
+        tokenCostDisplay.textContent = `$${calculateCost().toFixed(4)}`;
+      }
+    }
+
+    function resetTokenTotals() {
+      tokenTotals = { totalInputTokens: 0, totalOutputTokens: 0 };
+      updateTokenDisplay();
+    }
 
     // We'll use Strudel's built-in analyser system by adding .analyze() to patterns
     // The analyser is stored in superdough's `analysers` object, accessible via getAnalyserById
@@ -759,9 +908,14 @@ import Layout from '../layouts/Layout.astro';
                 lastEnrichedContext = data.enrichedPrompt;
                 contextDisplay.textContent = data.enrichedPrompt;
                 contextDisplay.className = '';
+                showContextSection();
                 setCode(editor, '// Generating code...');
               } else if (eventType === 'stage2') {
                 setCode(editor, data.code);
+              } else if (eventType === 'done') {
+                if (data.usage) {
+                  updateTokenTotals(data.usage);
+                }
               } else if (eventType === 'error') {
                 throw new Error(data.error);
               }
@@ -814,11 +968,16 @@ import Layout from '../layouts/Layout.astro';
         setCode(editor, data.code);
         alterInput.value = '';
 
+        // Track token usage
+        if (data.usage) {
+          updateTokenTotals(data.usage);
+        }
+
       } catch (error) {
         console.error('Alter error:', error);
       } finally {
         alterBtn.disabled = false;
-        alterBtn.textContent = 'Alter';
+        alterBtn.textContent = 'Go!';
       }
     }
 
@@ -847,6 +1006,11 @@ import Layout from '../layouts/Layout.astro';
         }
 
         setCode(editor, data.code);
+
+        // Track token usage
+        if (data.usage) {
+          updateTokenTotals(data.usage);
+        }
 
       } catch (error) {
         console.error('Evolution error:', error);
@@ -977,8 +1141,19 @@ import Layout from '../layouts/Layout.astro';
         }
 
         // If widgets were found (sliders, etc.), render them in the editor
-        if (result?.widgets?.length > 0) {
-          updateSliderWidgets(editor, result.widgets);
+        // Widgets are stored in strudelRepl.state, not in result
+        // Adjust positions by codeOffset since widgets have positions from wrapped code
+        const widgets = strudelRepl?.state?.widgets;
+        if (widgets?.length > 0) {
+          const adjustedWidgets = widgets.map((w: any) => ({
+            ...w,
+            from: w.from - codeOffset,
+            to: w.to - codeOffset,
+          }));
+          const sliders = adjustedWidgets.filter((w: any) => w.type === 'slider');
+          const blockWidgets = adjustedWidgets.filter((w: any) => w.type !== 'slider');
+          if (sliders.length > 0) updateSliderWidgets(editor, sliders);
+          if (blockWidgets.length > 0) updateWidgets(editor, blockWidgets);
         }
 
         startHighlighting();
@@ -990,6 +1165,7 @@ import Layout from '../layouts/Layout.astro';
         playBtn.textContent = '⏸';
         playBtn.title = 'Pause';
         playBtn.className = 'playing';
+        syncAlterPlayBtn();
       } catch (error) {
         console.error('Play error:', error);
         editorContainer.classList.add('error');
@@ -1026,6 +1202,7 @@ import Layout from '../layouts/Layout.astro';
         playBtn.textContent = '▶';
         playBtn.title = 'Resume';
         playBtn.className = 'paused';
+        syncAlterPlayBtn();
       }
     }
 
@@ -1044,6 +1221,7 @@ import Layout from '../layouts/Layout.astro';
         playBtn.textContent = '⏸';
         playBtn.title = 'Pause';
         playBtn.className = 'playing';
+        syncAlterPlayBtn();
       }
     }
 
@@ -1069,6 +1247,7 @@ import Layout from '../layouts/Layout.astro';
         playBtn.textContent = '▶';
         playBtn.title = 'Play';
         playBtn.className = '';
+        syncAlterPlayBtn();
 
         // Set shader to idle mode (subtle animation)
         if (window.__shaderCtx) {
@@ -1089,6 +1268,25 @@ import Layout from '../layouts/Layout.astro';
       const isVisible = !codeSection.classList.contains('hidden');
       codeSection.classList.toggle('hidden');
       codeBtn.classList.toggle('active', !isVisible);
+      updateAlterPlayBtnVisibility();
+    }
+
+    // Update alter play button visibility based on code section state
+    function updateAlterPlayBtnVisibility() {
+      const codeHidden = codeSection.classList.contains('hidden');
+      const alterVisible = !alterSection.classList.contains('hidden');
+      alterPlayBtn.classList.toggle('hidden', !(codeHidden && alterVisible));
+    }
+
+    // Sync alter play button state with main play button
+    function syncAlterPlayBtn() {
+      alterPlayBtn.textContent = playBtn.textContent;
+      alterPlayBtn.className = 'alter-play-btn' + (playBtn.className.includes('playing') ? ' playing' : '') + (playBtn.className.includes('paused') ? ' paused' : '');
+      if (codeSection.classList.contains('hidden') && !alterSection.classList.contains('hidden')) {
+        alterPlayBtn.classList.remove('hidden');
+      } else {
+        alterPlayBtn.classList.add('hidden');
+      }
     }
 
     // Toggle alter section visibility
@@ -1096,18 +1294,25 @@ import Layout from '../layouts/Layout.astro';
       const isVisible = !alterSection.classList.contains('hidden');
       alterSection.classList.toggle('hidden');
       alterToggleBtn.classList.toggle('active', !isVisible);
+      updateAlterPlayBtnVisibility();
     }
 
-    // Toggle context section visibility
+    // Toggle context section visibility (only if there's content)
     function toggleContextSection() {
+      if (!contextDisplay.textContent?.trim()) return;
       contextDisplay.classList.toggle('collapsed');
       contextArrow.classList.toggle('collapsed');
+    }
+
+    // Show context section when content is available
+    function showContextSection() {
+      contextSection.classList.remove('hidden');
     }
 
     // Toggle all panels (code + generate + alter)
     let panelsVisible = true;
     let savedCodeState = true;
-    let savedGenerateState = false;
+    let savedGenerateState = true;
     let savedAlterState = true;
 
     function toggleAllPanels() {
@@ -1393,6 +1598,7 @@ import Layout from '../layouts/Layout.astro';
     alterBtn.addEventListener('click', alterCode);
     evolveBtn.addEventListener('click', toggleEvolution);
     playBtn.addEventListener('click', togglePlay);
+    alterPlayBtn.addEventListener('click', togglePlay);
     stopBtn.addEventListener('click', stopCode);
     bankSelect.addEventListener('change', handleBankChange);
 
@@ -1477,27 +1683,57 @@ import Layout from '../layouts/Layout.astro';
     const shortcutsPopup = document.getElementById('shortcuts-popup') as HTMLDivElement;
     const shortcutsClose = document.getElementById('shortcuts-close') as HTMLButtonElement;
 
+    // Stats button and token popup
+    const statsBtn = document.getElementById('stats-btn') as HTMLButtonElement;
+    const tokenPopup = document.getElementById('token-popup') as HTMLDivElement;
+    const tokenPopupClose = document.getElementById('token-popup-close') as HTMLButtonElement;
+
     function toggleShortcutsPopup(e: Event) {
-      e.stopPropagation(); // Prevent document click from firing
+      e.stopPropagation();
       shortcutsPopup.classList.toggle('hidden');
+      // Close token popup when opening shortcuts
+      tokenPopup.classList.add('hidden');
+    }
+
+    function toggleTokenPopup(e: Event) {
+      e.stopPropagation();
+      tokenPopup.classList.toggle('hidden');
+      // Close shortcuts popup when opening token popup
+      shortcutsPopup.classList.add('hidden');
     }
 
     infoBtn.addEventListener('click', toggleShortcutsPopup);
     shortcutsClose.addEventListener('click', toggleShortcutsPopup);
+    statsBtn.addEventListener('click', toggleTokenPopup);
+    tokenPopupClose.addEventListener('click', toggleTokenPopup);
 
-    // Close popup when clicking/tapping outside
+    // Reset tokens button
+    const resetTokensBtn = document.getElementById('reset-tokens') as HTMLButtonElement;
+    resetTokensBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      resetTokenTotals();
+    });
+
+    // Close popups when clicking/tapping outside
     document.addEventListener('click', (e) => {
       if (!shortcutsPopup.classList.contains('hidden') &&
           !shortcutsPopup.contains(e.target as Node) &&
-          !infoBtn.contains(e.target as Node)) { // Use contains() for child elements
+          !infoBtn.contains(e.target as Node)) {
         shortcutsPopup.classList.add('hidden');
+      }
+      if (!tokenPopup.classList.contains('hidden') &&
+          !tokenPopup.contains(e.target as Node) &&
+          !statsBtn.contains(e.target as Node)) {
+        tokenPopup.classList.add('hidden');
       }
     });
 
     // Keyboard shortcut: K to toggle play/pause
     document.addEventListener('keydown', (e) => {
-      // Don't trigger if typing in an input field
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+      // Don't trigger if typing in an input field or the code editor
+      if (e.target instanceof HTMLInputElement ||
+          e.target instanceof HTMLTextAreaElement ||
+          editorContainer.contains(e.target as Node)) {
         return;
       }
 
@@ -1542,23 +1778,39 @@ import Layout from '../layouts/Layout.astro';
         cycleBackgroundViz(1);
       }
 
-      // Escape to close shortcuts popup
+      // Escape to close popups
       if (e.key === 'Escape') {
         shortcutsPopup.classList.add('hidden');
+        tokenPopup.classList.add('hidden');
       }
     });
 
     // Initialize on load
     init();
 
-    // Initialize shader on page load if a style is selected
-    if (currentVizStyle !== 'none') {
-      try {
-        window.__shaderCtx = initShader(shaderCanvas, currentVizStyle);
-        setShaderIdle(window.__shaderCtx);
-        vizBtn.classList.add('active');
-      } catch (e) {
-        console.warn('Shader initialization failed:', e);
+    // Mobile: use lightweight visualizers (only pianoroll, no background effects)
+    if (isMobile) {
+      // Disable background effects
+      currentVizStyle = 'none';
+      vizBtn.classList.remove('active');
+      vizButtons.forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.viz === 'none');
+      });
+
+      // Hide scope and spectrum, keep only pianoroll
+      scopeCanvas.classList.add('hidden');
+      spectrumCanvas.classList.add('hidden');
+      pianorollCanvas.classList.remove('hidden');
+    } else {
+      // Desktop: Initialize shader on page load if a style is selected
+      if (currentVizStyle !== 'none') {
+        try {
+          window.__shaderCtx = initShader(shaderCanvas, currentVizStyle);
+          setShaderIdle(window.__shaderCtx);
+          vizBtn.classList.add('active');
+        } catch (e) {
+          console.warn('Shader initialization failed:', e);
+        }
       }
     }
   </script>

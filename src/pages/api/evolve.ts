@@ -40,7 +40,7 @@ export const POST: APIRoute = async ({ request }) => {
 
   try {
     const prompt = buildEvolutionPrompt(currentCode, enrichedContext, genreContext, bankName);
-    const evolvedCode = await chat(
+    const response = await chat(
       modelCodegen,
       EVOLUTION_PROMPT,
       prompt,
@@ -48,13 +48,19 @@ export const POST: APIRoute = async ({ request }) => {
     );
 
     // Clean up the code (remove markdown code blocks if present)
-    const cleanCode = evolvedCode
+    const cleanCode = response.content
       .replace(/^```(?:javascript|js|strudel)?\n?/gm, '')
       .replace(/```$/gm, '')
       .trim();
 
     return new Response(
-      JSON.stringify({ code: cleanCode }),
+      JSON.stringify({
+        code: cleanCode,
+        usage: {
+          promptTokens: response.usage.promptTokens,
+          completionTokens: response.usage.completionTokens
+        }
+      }),
       { status: 200, headers: { 'Content-Type': 'application/json' } }
     );
 

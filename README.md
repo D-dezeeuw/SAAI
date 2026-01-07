@@ -7,6 +7,7 @@ A generative AI-powered music creation tool built on top of [Strudel](https://st
 - **AI-Powered Music Generation** - Describe music in plain English, get playable Strudel code
 - **Multi-Stage AI Pipeline** - Prompt enhancement, code generation, and code alteration stages
 - **Live Code Evolution** - Let AI subtly evolve your music over time
+- **Token Usage Tracking** - Monitor API usage with real-time cost estimates
 - **Multiple Visualizers** - Real-time audio-reactive visualizations
 - **Genre Templates** - Pre-configured patterns for EDM, Drum & Bass, Hip-Hop, Acid, Jazz
 - **Drum Kit Selection** - Classic drum machines (TR-909, TR-808, LinnDrum, etc.)
@@ -30,6 +31,18 @@ Make incremental changes to existing code without regenerating everything. Say "
 
 ### Evolution Mode
 Click "Evolve" to let AI make subtle, DJ-style tweaks to keep your music fresh. It might add filter sweeps, adjust velocities, or introduce probability-based variations.
+
+## Token Usage Tracking
+
+The info panel displays real-time API usage statistics:
+
+- **Input Tokens** - Tokens sent to the AI (prompts, context, code)
+- **Output Tokens** - Tokens received from the AI (generated code)
+- **Estimated Cost** - Calculated based on OpenRouter pricing:
+  - Input: $0.50 per million tokens
+  - Output: $3.00 per million tokens
+
+Token counts accumulate across all AI operations (generate, alter, evolve) during your session. Click the reset button (↺) to clear the counters.
 
 ## Visualizers
 
@@ -58,6 +71,7 @@ Background effects react to:
 |-----|--------|
 | `K` | Play / Stop |
 | `H` | Hide / Show UI |
+| `I` | Toggle Info Panel (token usage, shortcuts) |
 | `V` | Toggle Audio Visualizers |
 | `B` | Toggle Background Effects |
 | `A` | Toggle Visuals-Only Mode |
@@ -99,8 +113,8 @@ Configure three models for each task in the UI or code:
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/strudel_ai.git
-cd strudel_ai
+git clone https://github.com/D-dezeeuw/SAAI.git
+cd SAAI
 
 # Install dependencies
 npm install
@@ -211,6 +225,18 @@ src/
 └── layouts/
     └── Layout.astro     # Base layout
 ```
+
+## Upcoming Features
+
+- **Full-Length Song Generation** - AI-assisted composition of complete songs with intro, verse, chorus, and outro sections
+- **Improved Code Generation** - Better structured Strudel code output with proper formatting and organization
+- **Interactive Elements** - AI-generated sliders and controls for real-time parameter tweaking
+- **Enhanced Genre Knowledge** - Deeper contextual understanding of genres, subgenres, and their characteristic patterns
+- **Extended Visualizations** - More visualization options and [Hydra](https://hydra.ojack.xyz/) integration for live visuals
+- **Expanded Sample Library** - Additional support for samples, drum kits, and sound banks
+- **Pattern Templates** - Reusable snippets for specific drum patterns, synth presets, and common arrangements
+- **Shareable Creations** - Share your Strudel patterns via URL with code compressed into a hash
+- **Codebase Restructure** - Cleanup and reorganization for better maintainability and modularity
 
 ## License
 

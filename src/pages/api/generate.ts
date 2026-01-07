@@ -47,34 +47,49 @@ export const POST: APIRoute = async ({ request }) => {
       };
 
       try {
+        // Track token usage across both stages
+        let totalPromptTokens = 0;
+        let totalCompletionTokens = 0;
+
         // Stage 1: Transform user request into detailed Strudel prompt
         const stage1Prompt = buildStage1Prompt(message, currentCode);
-        const enrichedPrompt = await chat(
+        const stage1Response = await chat(
           modelContext,
           STAGE1_SYSTEM_PROMPT,
           stage1Prompt,
           apiKey
         );
 
-        send('stage1', { enrichedPrompt });
+        totalPromptTokens += stage1Response.usage.promptTokens;
+        totalCompletionTokens += stage1Response.usage.completionTokens;
+
+        send('stage1', { enrichedPrompt: stage1Response.content });
 
         // Stage 2: Generate Strudel code from enriched prompt
-        const stage2Prompt = buildStage2Prompt(enrichedPrompt, currentCode, genreContext, bankName);
-        const generatedCode = await chat(
+        const stage2Prompt = buildStage2Prompt(stage1Response.content, currentCode, genreContext, bankName);
+        const stage2Response = await chat(
           modelCodegen,
           STAGE2_SYSTEM_PROMPT,
           stage2Prompt,
           apiKey
         );
 
+        totalPromptTokens += stage2Response.usage.promptTokens;
+        totalCompletionTokens += stage2Response.usage.completionTokens;
+
         // Clean up the code (remove markdown code blocks if present)
-        const cleanCode = generatedCode
+        const cleanCode = stage2Response.content
           .replace(/^```(?:javascript|js|strudel)?\n?/gm, '')
           .replace(/```$/gm, '')
           .trim();
 
         send('stage2', { code: cleanCode });
-        send('done', {});
+        send('done', {
+          usage: {
+            promptTokens: totalPromptTokens,
+            completionTokens: totalCompletionTokens
+          }
+        });
 
       } catch (error) {
         console.error('Generation error:', error);

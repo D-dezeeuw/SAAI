@@ -3,10 +3,10 @@ import { EditorState, StateField, StateEffect } from '@codemirror/state';
 import { javascript } from '@codemirror/lang-javascript';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { defaultKeymap, historyKeymap, history } from '@codemirror/commands';
-import { sliderPlugin, updateSliderWidgets } from '@strudel/codemirror';
+import { sliderPlugin, updateSliderWidgets, widgetPlugin, updateWidgets } from '@strudel/codemirror';
 
 // Re-export for use in index.astro
-export { updateSliderWidgets };
+export { updateSliderWidgets, updateWidgets };
 
 // Effect to update highlighted ranges
 export const setHighlights = StateEffect.define<{from: number, to: number}[]>();
@@ -57,6 +57,28 @@ const strudelTheme = EditorView.theme({
     minHeight: '200px',
     maxHeight: '400px',
     backgroundColor: 'transparent',
+    scrollbarWidth: 'thin',
+    scrollbarColor: '#3a3a3a #1a1a1a',
+  },
+  // Webkit scrollbar styling
+  '.cm-scroller::-webkit-scrollbar': {
+    width: '10px',
+    height: '10px',
+  },
+  '.cm-scroller::-webkit-scrollbar-track': {
+    background: '#1a1a1a',
+    borderRadius: '5px',
+  },
+  '.cm-scroller::-webkit-scrollbar-thumb': {
+    background: 'linear-gradient(180deg, #3a3a3a 0%, #3a3a3a 40%, #00d4d4 50%, #3a3a3a 60%, #3a3a3a 100%)',
+    borderRadius: '5px',
+    border: '2px solid #1a1a1a',
+  },
+  '.cm-scroller::-webkit-scrollbar-thumb:hover': {
+    background: 'linear-gradient(180deg, #4a4a4a 0%, #4a4a4a 40%, #00ffff 50%, #4a4a4a 60%, #4a4a4a 100%)',
+  },
+  '.cm-scroller::-webkit-scrollbar-corner': {
+    background: '#1a1a1a',
   },
   '.cm-gutters': {
     backgroundColor: 'rgba(26, 26, 26, 0.5)',
@@ -93,6 +115,7 @@ export function createEditor(
     oneDark,
     highlightField,
     sliderPlugin,
+    ...widgetPlugin,  // Block widgets (pianoroll, scope, etc.)
     history(),
     keymap.of([...defaultKeymap, ...historyKeymap]),
     EditorView.lineWrapping,

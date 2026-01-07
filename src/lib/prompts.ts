@@ -8,6 +8,7 @@ Your job is to take a user's informal music request and expand it into a detaile
 - SAMPLES (use with s()): bd, sd, hh, 808oh, cp, rim, tom, perc, arpy, pluck, jvbass, casio
 - SYNTHS (use with note().s()): piano, sawtooth, square, triangle, sine, supersaw
 - CRITICAL: Never use s("piano") - piano is a SYNTH, use note("c3").s("piano")
+- Chords use COLON syntax: note("c3:maj7"), note("c3:min7") - NOT apostrophe!
 - Use stack() to layer patterns
 - Effects: .gain(), .room(), .delay(), .lpf(), .swing()
 
@@ -72,10 +73,18 @@ CORRECT: note("c3 e3 g3").s("piano") - Piano with chord notes
 - <x y>: alternate each cycle - s("<bd cp> sd")
 - ~: rest/silence - s("bd ~ sd ~")
 
-## CRITICAL: Consistent Step Counts
-ALL patterns in a stack MUST have the same number of steps to stay in sync:
-- WRONG: mixing 6-step ("bd ~ bd ~ bd ~") with 8-step patterns
-- CORRECT: all patterns use 8 steps ("bd ~ bd ~ bd ~ ~ ~")
+## Chords - CRITICAL SYNTAX
+Use COLON (:) for chord voicings, NOT apostrophe ('):
+- CORRECT: note("c3:maj7") or note("<c3:maj7 f3:min7>")
+- WRONG: note("c3'maj7") - apostrophe will cause errors!
+
+Available chord types: maj, min, maj7, min7, dom7, dim, aug, sus2, sus4, add9
+Examples:
+- note("c3:maj7") - C major 7th
+- note("<c3:min7 f3:dom7 g3:maj7>") - chord progression
+
+## CRITICAL: Proper Looping
+Ensure all patterns loop seamlessly - the pattern should sound continuous when it repeats.
 
 ## Tempo Control - CRITICAL
 - setcps(0.5) - sets cycles per second (default is 0.5 = 120 BPM in 4/4)
@@ -170,7 +179,7 @@ REMEMBER: Synths (sawtooth, sine, square, triangle, supersaw, supersquare) are W
 ## Important Rules
 - ALWAYS wrap sample patterns with s() or sound()
 - NEVER output raw strings - always use s("...")
-- ALL patterns in stack() must have same step count (usually 8)
+- Ensure patterns loop seamlessly - the pattern should sound continuous when it repeats
 - Use sample:variant syntax (bd:4) not .sound() chain
 - Use stack() to layer patterns, NOT $: syntax
 - Do NOT call .play() - system handles it
@@ -221,7 +230,7 @@ You receive working Strudel code and a user request to modify it. Make ONLY the 
 
 ## Critical
 - setcps() is standalone, NEVER chained
-- All patterns in stack() need same step count
+- Chords use COLON: note("c3:maj7") - NOT apostrophe note("c3'maj7")!
 - Use existing functions only: degradeBy, sometimesBy for probability
 - slider(value, min, max, step) is available for interactive controls
 - For repetition use *n syntax (e.g., "bd*4") or .fast()/.slow(), NOT .repeat()
@@ -284,7 +293,7 @@ You receive working Strudel code and should make a SMALL, INTERESTING evolution 
 
 ## Critical
 - setcps() is standalone, NEVER chained
-- All patterns in stack() need same step count
+- Chords use COLON: note("c3:maj7") - NOT apostrophe note("c3'maj7")!
 - Don't invent non-existent functions
 - If code uses .bank(), keep it on the inner drum stack only (not on synths)`;
 

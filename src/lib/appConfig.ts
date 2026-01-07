@@ -8,7 +8,7 @@
 export const APP_CONFIG = {
   // --- DEFAULT PROMPT ---
   // The default text shown in the prompt input field
-  defaultPrompt: 'Create a nice melodic implementation, with chord progression and the use of oh, bd,sd and hh samples. make use of effects like reverb, delay, and filter sweeps to enhance the sound. make it sound professional and polished. Make sure it loops.',
+  defaultPrompt: 'Create an upbeat electronic music track with drums and bass and melodic synths.',
 
   // --- DEFAULT GENRE ---
   // Options: '' (no genre), 'edm', 'dnb', 'hiphop-trap', 'acid', 'jazz'
@@ -21,14 +21,14 @@ export const APP_CONFIG = {
 
   // --- DEFAULT STRUDEL CODE ---
   // The initial code shown in the editor when the app loads
-  defaultCode: `// Welcome to SAAI - Strudel Augmented AI
-// Use the AI panel (✦) to generate music, or write your own code below
+  defaultCode: `// Welcome to SAAI - Strudel Augmented Artificial Intelligence
+// Use the AI panel (✦) to generate music, or write your own code below!
 
 setcps(138/60/4)
 
 stack(
   s("bd:5*4").gain(1.2),
-  s("~ ~ oh ~ ~ ~ oh ~ ~ ~ oh ~ ~ ~ oh ~"),
+  s("~ ~ 808oh ~ ~ ~ 808oh ~ ~ ~ 808oh ~ ~ ~ 808oh ~"),
   s("~ ~ ~ ~ cp ~ ~ ~ ~ ~ ~ ~ cp ~ ~ ~").gain(0.4),
   s("hh*16").gain("1 0.6 0.8 0.6").room(0.4),
   note("~ e1 e1 e1 ~ e1 e1 e1 ~ e1 e1 e1 ~ e1 e1 e1")

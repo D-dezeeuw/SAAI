@@ -5,12 +5,27 @@ interface Message {
   content: string;
 }
 
+export interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+}
+
+export interface ChatResponse {
+  content: string;
+  usage: TokenUsage;
+}
+
 interface OpenRouterResponse {
   choices: {
     message: {
       content: string;
     };
   }[];
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
 }
 
 export async function chat(
@@ -18,7 +33,7 @@ export async function chat(
   systemPrompt: string,
   userPrompt: string,
   apiKey: string
-): Promise<string> {
+): Promise<ChatResponse> {
   const messages: Message[] = [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: userPrompt }
@@ -46,7 +61,13 @@ export async function chat(
   }
 
   const data = await response.json() as OpenRouterResponse;
-  return data.choices[0]?.message?.content || '';
+  return {
+    content: data.choices[0]?.message?.content || '',
+    usage: {
+      promptTokens: data.usage?.prompt_tokens || 0,
+      completionTokens: data.usage?.completion_tokens || 0
+    }
+  };
 }
 
 // Default models (can be overridden via env vars)

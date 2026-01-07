@@ -123,13 +123,77 @@ npm run dev
 6. Press **Play** or hit `K` to hear your creation
 7. Use the **Alter** input for changes, or click **Evolve** for AI variations
 
+## Production Deployment
+
+### Using Docker (Recommended)
+
+The project includes Docker support for easy production deployment.
+
+**Files:**
+- `Dockerfile` - Multi-stage build for optimized production image
+- `.dockerignore` - Excludes unnecessary files from the build
+- `build.sh` - Helper script to build and run the container
+
+**Quick Start:**
+
+```bash
+# Make sure .env file exists with your API key
+echo "OPENROUTER_API_KEY=your_key_here" > .env
+
+# Build and run
+./build.sh
+```
+
+**Manual Docker Commands:**
+
+```bash
+# Build the image
+docker build -t strudel-ai .
+
+# Run the container
+docker run -p 4321:4321 --env-file .env strudel-ai
+```
+
+### Using Portainer
+
+1. Build and push the image to your registry, or build directly on the server
+2. Create a new container in Portainer
+3. Set the image to `strudel-ai`
+4. Map port `4321:4321`
+5. Add environment variables:
+   - `OPENROUTER_API_KEY` (required)
+   - `MODEL_CONTEXT` (optional)
+   - `MODEL_CODEGEN` (optional)
+
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `OPENROUTER_API_KEY` | Yes | Your OpenRouter API key |
+| `MODEL_CONTEXT` | No | Model for prompt enhancement |
+| `MODEL_CODEGEN` | No | Model for code generation |
+
+### Without Docker
+
+```bash
+# Build the project
+npm run build
+
+# Run the production server
+node dist/server/entry.mjs
+
+# Or with a process manager
+pm2 start dist/server/entry.mjs --name strudel-ai
+```
+
 ## Tech Stack
 
-- **[Astro](https://astro.build/)** - Web framework
+- **[Astro](https://astro.build/)** - Web framework (SSR with Node adapter)
 - **[Strudel](https://strudel.cc/)** - Live coding music environment
 - **[CodeMirror](https://codemirror.net/)** - Code editor
 - **[OpenRouter](https://openrouter.ai/)** - AI model routing
 - **WebGL2** - GPU-accelerated visualizations
+- **Docker** - Container deployment
 
 ## Project Structure
 

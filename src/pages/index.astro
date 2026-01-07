@@ -75,7 +75,7 @@ import Layout from '../layouts/Layout.astro';
 
     <div class="code-section">
       <div id="code-editor-container">
-        <button id="reset-btn" title="Reset">↺</button>
+        <button id="stop-btn" title="Stop">■</button>
         <button id="play-btn" title="Play">▶</button>
       </div>
       <div class="alter-section">
@@ -134,6 +134,9 @@ import Layout from '../layouts/Layout.astro';
     </div>
   </div>
 
+  <!-- Toast notification -->
+  <div id="toast" class="toast hidden">Strudel is inedible :(</div>
+
   <script>
     import { initStrudel, evaluate, hush, getAudioContext, getAnalyserById } from '@strudel/web';
     import { cleanupDraw, Framer } from '@strudel/draw';
@@ -143,6 +146,7 @@ import Layout from '../layouts/Layout.astro';
     import { initShader, updateShader, setShaderStyle, setShaderIdle, cleanupShader, type ShaderContext, type AudioData } from '../lib/shader';
     import { CustomScope } from '../lib/customScope';
     import { CustomSpectrum } from '../lib/customSpectrum';
+    import { APP_CONFIG } from '../lib/appConfig';
 
     // Make sliderWithID available globally for evaluated code
     (window as any).sliderWithID = sliderWithID;
@@ -175,7 +179,7 @@ import Layout from '../layouts/Layout.astro';
     const alterBtn = document.getElementById('alter-btn') as HTMLButtonElement;
     const evolveBtn = document.getElementById('evolve-btn') as HTMLButtonElement;
     const playBtn = document.getElementById('play-btn') as HTMLButtonElement;
-    const resetBtn = document.getElementById('reset-btn') as HTMLButtonElement;
+    const stopBtn = document.getElementById('stop-btn') as HTMLButtonElement;
     const editorContainer = document.getElementById('code-editor-container') as HTMLDivElement;
     const contextDisplay = document.getElementById('context-display') as HTMLPreElement;
     const pianorollCanvas = document.getElementById('pianoroll-canvas') as HTMLCanvasElement;
@@ -187,40 +191,32 @@ import Layout from '../layouts/Layout.astro';
     const vizButtons = vizDropdown.querySelectorAll('button[data-viz]') as NodeListOf<HTMLButtonElement>;
     const audioVizBtn = document.getElementById('audio-viz-btn') as HTMLButtonElement;
     const logoElement = document.querySelector('.header h1') as HTMLElement;
-    let currentVizStyle = 'orbs'; // Default style
-    let audioVizEnabled = true; // Audio visualizers (spectrum, scope, pianoroll) visible by default
+    const toast = document.getElementById('toast') as HTMLDivElement;
+    let currentVizStyle = APP_CONFIG.defaultBackgroundEffect; // Default style from config
+    let audioVizEnabled = APP_CONFIG.audioVisualizersEnabled; // Audio visualizers state from config
     let customScope: CustomScope | null = null; // Custom scope visualizer instance
     let customSpectrum: CustomSpectrum | null = null; // Custom spectrum visualizer instance
 
-    // Example Strudel code - drums in inner stack for bank switching, synths outside
-    // Note: Use 808oh for open hihat from Dirt-Samples (oh only works with drum banks)
-    const exampleCode = `setcps(138/60/4)
-
-stack(
-  // Drums
-  stack(
-    s("bd:5*4").gain(1.2),
-    s("~ ~ 808oh ~ ~ ~ 808oh ~ ~ ~ 808oh ~ ~ ~ 808oh ~"),
-    s("~ ~ ~ ~ cp ~ ~ ~ ~ ~ ~ ~ cp ~ ~ ~").gain(0.4),
-    s("hh*16").gain("1 0.6 0.8 0.6").room(0.4)
-  ),
-  // Synths
-  note("~ e1 e1 e1 ~ e1 e1 e1 ~ e1 e1 e1 ~ e1 e1 e1")
-    .s("sawtooth")
-    .lpf(800)
-    .gain(0.7),
-  note("<[e3 ~ ~ g3 ~ ~ b3 ~ e4 ~ ~ d4 ~ b3 ~ ~] [c3 ~ ~ e3 ~ ~ g3 ~ c4 ~ ~ b3 ~ g3 ~ ~]>")
-    .s("sawtooth")
-    .lpf(sine.range(500, 5000).slow(8))
-    .chorus(0.5)
-    .delay(0.3)
-    .delayfb(0.4)
-    .room(0.6)
-    .gain(0.5)
-).analyze('viz')`;
+    // Default Strudel code from config
+    const exampleCode = APP_CONFIG.defaultCode;
 
     // Debounce timer for code changes
     let codeChangeTimer: ReturnType<typeof setTimeout> | null = null;
+
+    // Show toast notification
+    function showToast(message: string = 'Strudel is inedible :(', duration: number = 2000) {
+      console.log('[showToast] Showing toast:', message, 'toast element:', toast);
+      toast.textContent = message;
+      toast.classList.remove('hidden', 'fade-out');
+
+      setTimeout(() => {
+        toast.classList.add('fade-out');
+        setTimeout(() => {
+          toast.classList.add('hidden');
+          toast.classList.remove('fade-out');
+        }, 300); // Match animation duration
+      }, duration);
+    }
 
     // Handle code changes - stop and restart music
     function handleCodeChange() {
@@ -243,12 +239,23 @@ stack(
       }, 200);
     }
 
+    // Set default values from config
+    promptInput.value = APP_CONFIG.defaultPrompt;
+    genreSelect.value = APP_CONFIG.defaultGenre;
+    bankSelect.value = APP_CONFIG.defaultDrumKit;
+
+    // Update viz dropdown to match default background effect
+    vizButtons.forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.viz === APP_CONFIG.defaultBackgroundEffect);
+    });
+
     // Initialize CodeMirror editor with change handler
     const editor: EditorView = createEditor(editorContainer, exampleCode, handleCodeChange);
 
     // State
     let isInitialized = false;
     let isPlaying = false;
+    let isPaused = false;
     let strudelRepl: any = null;
     let highlightFramer: InstanceType<typeof Framer> | null = null;
     let lastEnrichedContext: string = '';
@@ -638,8 +645,6 @@ stack(
         for (const hap of activeHaps) {
           // Debug: log hap structure (without JSON.stringify due to BigInt)
           if (activeHaps.length > 0 && !window.__debuggedHap) {
-            console.log('Sample hap context:', hap.context);
-            console.log('Sample hap locations:', hap.context?.locations);
             window.__debuggedHap = true;
           }
 
@@ -657,7 +662,7 @@ stack(
         }
 
         updateHighlights(editor, highlights);
-      }, (err) => console.warn('Highlight error:', err));
+      }, (err:any) => console.warn('Highlight error:', err));
 
       highlightFramer.start();
     }
@@ -777,7 +782,7 @@ stack(
       }
 
       const currentCode = getCode(editor);
-      if (!currentCode || currentCode.startsWith('//')) {
+      if (!currentCode) {
         return;
       }
 
@@ -816,7 +821,7 @@ stack(
 
     async function evolveCode() {
       const currentCode = getCode(editor);
-      if (!currentCode || currentCode.startsWith('//')) {
+      if (!currentCode) {
         return;
       }
 
@@ -864,7 +869,8 @@ stack(
 
     async function playCode() {
       const code = getCode(editor).trim();
-      if (!code || code.startsWith('//')) {
+      if (!code) {
+        console.warn('[playCode] No code to play');
         return;
       }
 
@@ -948,23 +954,27 @@ stack(
       try {
         const result = await evaluate(vizCode);
 
+        // evaluate() catches errors internally and returns undefined
+        if (!result) {
+          editorContainer.classList.add('error');
+          showToast();
+          return;
+        }
+
+        // Code is valid - remove error state
+        editorContainer.classList.remove('error');
+
         // Get Strudel's analyser and make it available to our visualizers
         const strudelAnalyser = getAnalyserById('viz');
         if (strudelAnalyser) {
           window.__scopeAnalyser = strudelAnalyser;
           window.__scopeAudioContext = getAudioContext();
-          console.log('[Visualizer] Using Strudel analyser:', strudelAnalyser);
         } else {
           console.warn('[Visualizer] Strudel analyser not found');
         }
 
-        // Debug: log what evaluate returns
-        console.log('Evaluate result:', result);
-        console.log('Widgets found:', result?.widgets);
-
         // If widgets were found (sliders, etc.), render them in the editor
         if (result?.widgets?.length > 0) {
-          console.log('Rendering widgets:', result.widgets);
           updateSliderWidgets(editor, result.widgets);
         }
 
@@ -973,31 +983,88 @@ stack(
         customScope?.start();
         customSpectrum?.start();
         isPlaying = true;
-        playBtn.textContent = '■';
+        isPaused = false;
+        playBtn.textContent = '⏸';
+        playBtn.title = 'Pause';
         playBtn.className = 'playing';
       } catch (error) {
         console.error('Play error:', error);
+        editorContainer.classList.add('error');
+        showToast();
       }
     }
 
     // Toggle play/stop
     function togglePlay() {
-      if (isPlaying) {
-        stopCode();
+      if (isPaused) {
+        // Resume from pause
+        resumeCode();
+      } else if (isPlaying) {
+        // Pause playback
+        pauseCode();
       } else {
+        // Start playing
         playCode();
+      }
+    }
+
+    function pauseCode() {
+      if (isInitialized && isPlaying) {
+        try {
+          const audioCtx = getAudioContext();
+          if (audioCtx && audioCtx.state === 'running') {
+            audioCtx.suspend();
+          }
+        } catch (e) {
+          console.warn('Could not suspend audio context:', e);
+        }
+        isPaused = true;
+        isPlaying = false;
+        playBtn.textContent = '▶';
+        playBtn.title = 'Resume';
+        playBtn.className = 'paused';
+      }
+    }
+
+    function resumeCode() {
+      if (isInitialized && isPaused) {
+        try {
+          const audioCtx = getAudioContext();
+          if (audioCtx && audioCtx.state === 'suspended') {
+            audioCtx.resume();
+          }
+        } catch (e) {
+          console.warn('Could not resume audio context:', e);
+        }
+        isPaused = false;
+        isPlaying = true;
+        playBtn.textContent = '⏸';
+        playBtn.title = 'Pause';
+        playBtn.className = 'playing';
       }
     }
 
     function stopCode() {
       if (isInitialized) {
+        // Resume audio context first if suspended (needed for clean stop)
+        try {
+          const audioCtx = getAudioContext();
+          if (audioCtx && audioCtx.state === 'suspended') {
+            audioCtx.resume();
+          }
+        } catch (e) {
+          console.warn('Could not resume audio context:', e);
+        }
+
         hush();
         cleanupDraw(true);
         stopHighlighting();
         customScope?.stop();
         customSpectrum?.stop();
         isPlaying = false;
+        isPaused = false;
         playBtn.textContent = '▶';
+        playBtn.title = 'Play';
         playBtn.className = '';
 
         // Set shader to idle mode (subtle animation)
@@ -1005,26 +1072,6 @@ stack(
           setShaderIdle(window.__shaderCtx);
         }
       }
-    }
-
-    async function resetCode() {
-      // Stop current playback
-      if (isInitialized) {
-        hush();
-        cleanupDraw(true);
-        stopHighlighting();
-      }
-
-      // Reset UI state
-      isPlaying = false;
-      playBtn.textContent = '▶';
-      playBtn.className = '';
-      setCode(editor, exampleCode);
-      contextDisplay.textContent = '// The enriched prompt will appear here...';
-      promptInput.value = '';
-
-      // Start playing the example code
-      await playCode();
     }
 
     // Toggle generate panel visibility
@@ -1343,7 +1390,7 @@ stack(
     alterBtn.addEventListener('click', alterCode);
     evolveBtn.addEventListener('click', toggleEvolution);
     playBtn.addEventListener('click', togglePlay);
-    resetBtn.addEventListener('click', resetCode);
+    stopBtn.addEventListener('click', stopCode);
     bankSelect.addEventListener('change', handleBankChange);
 
     // Toggle visualizer dropdown

@@ -1,38 +1,162 @@
 # SAAI: Strudel Augmented Artificial Intelligence
 
-This project is set up as a fun toy to play around with.
-You can select some values, and query the AI to generate music patterns for you.
+A generative AI-powered music creation tool built on top of [Strudel](https://strudel.cc/), the live coding environment for music. Describe the music you want in natural language, and let AI generate the code for you.
 
-## Prerequisites
+## Features
 
-in the .env file set up your AI API keys. Only openrouter.ai is now supported because that's what I use.
-you have the ability to choose any model you want then, and only pay for the tokens.
+- **AI-Powered Music Generation** - Describe music in plain English, get playable Strudel code
+- **Multi-Stage AI Pipeline** - Prompt enhancement, code generation, and code alteration stages
+- **Live Code Evolution** - Let AI subtly evolve your music over time
+- **Multiple Visualizers** - Real-time audio-reactive visualizations
+- **Genre Templates** - Pre-configured patterns for EDM, Drum & Bass, Hip-Hop, Acid, Jazz
+- **Drum Kit Selection** - Classic drum machines (TR-909, TR-808, LinnDrum, etc.)
 
-I recommend Gemini 3 Flash for is cost/performance. but you can use three different models for each task
-- prompt improvement generation (with template context) - use a good creative chat model for this.
-- strudel code generation (coding model can be nice)
-- studel code alteration (probably easiest so a simple model would do)
+## AI Generation Pipeline
+
+SAAI uses a multi-stage AI pipeline for better music generation:
+
+### Stage 1: Prompt Enhancement
+Your casual request gets transformed into a detailed, production-focused prompt. A creative chat model expands "funky beat" into specific instructions about swing amounts, drum placement, and groove techniques.
+
+### Stage 2: Code Generation
+A coding-focused model generates valid Strudel code based on the enriched prompt. It understands:
+- Strudel's mini-notation syntax
+- Sample vs synth distinction
+- Effect chains and modulation
+- Proper pattern layering with `stack()`
+
+### Stage 3: Code Alteration
+Make incremental changes to existing code without regenerating everything. Say "add more reverb" or "make it faster" and the AI makes minimal, precise edits.
+
+### Evolution Mode
+Click "Evolve" to let AI make subtle, DJ-style tweaks to keep your music fresh. It might add filter sweeps, adjust velocities, or introduce probability-based variations.
 
 ## Visualizers
 
-I lean heavy on the visualizers, good music is fun, but seeing the music interact is even beter.
-So I created support for Scope + Spectrum analysis from strudel at the same time.
-But I also connected it to GLSL shaders, where there are 3 options, which is still a work in progress.
+### Audio Visualizers
+- **Scope** - Waveform display showing audio amplitude
+- **Spectrum** - Scrolling waterfall frequency visualization
+- **Piano Roll** - Note visualization from Strudel's draw module
 
-## Install the project
-It's a nodejs project so install its dependencies like so:
-`npm install`
+### Background Effects
+Music-reactive particle systems rendered with WebGL:
 
-## Run the project
-again it's nodejs.
-`npm run dev`
+| Effect | Description |
+|--------|-------------|
+| **Glowing Orbs** | Soft particles drifting upward, pulsing with bass |
+| **Stars** | Twinkling star-shaped particles |
+| **Flowing Trails** | Dots that leave fading trails as they move |
 
-if you want to run it locally.
+Background effects react to:
+- **Bass** - Particle size and brightness
+- **Treble** - Color shift from cyan to pink
+- **Beat** - Direction changes (trails mode)
 
-## License 
-License is following strudels license which is AGPL.
-See strudel for license details.
+## Keyboard Shortcuts
 
-## Note
-Just have fun, create expand and share it with friends.
+| Key | Action |
+|-----|--------|
+| `K` | Play / Stop |
+| `H` | Hide / Show UI |
+| `V` | Toggle Audio Visualizers |
+| `B` | Toggle Background Effects |
+| `A` | Toggle Visuals-Only Mode |
+| `<` | Previous Background Effect |
+| `>` | Next Background Effect |
 
+## Configuration
+
+Visual effects can be customized in `src/lib/configuration.ts`:
+
+```typescript
+export const CONFIG = {
+  colors: { cyan: {...}, pink: {...} },
+  orbs: { baseCount, sizeMin, sizeMax, ... },
+  stars: { baseCount, twinkleSpeed, ... },
+  trails: { speed, speedVariation, fadeFactor, ... },
+  reactivity: { bassSizeMultiplier, trebleColorShift, ... },
+};
+```
+
+## Prerequisites
+
+### API Keys
+Create a `.env` file with your OpenRouter API key:
+
+```env
+OPENROUTER_API_KEY=your_key_here
+```
+
+Only [OpenRouter](https://openrouter.ai/) is supported, which gives you access to many models and pay-per-token pricing.
+
+### Recommended Models
+Configure three models for each task in the UI or code:
+- **Prompt Enhancement** - Creative chat model (e.g., Claude, GPT-4)
+- **Code Generation** - Coding model (e.g., Claude, Gemini)
+- **Code Alteration** - Lightweight model works fine (e.g., Gemini Flash)
+
+## Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/strudel_ai.git
+cd strudel_ai
+
+# Install dependencies
+npm install
+
+# Set up environment
+cp .env.example .env
+# Edit .env with your API key
+
+# Start development server
+npm run dev
+```
+
+## Usage
+
+1. Open `http://localhost:4321` in your browser
+2. Click the **✦** button to open the AI generation panel
+3. Select a genre template and drum kit (optional)
+4. Describe the music you want
+5. Click **Generate** and wait for the AI
+6. Press **Play** or hit `K` to hear your creation
+7. Use the **Alter** input for changes, or click **Evolve** for AI variations
+
+## Tech Stack
+
+- **[Astro](https://astro.build/)** - Web framework
+- **[Strudel](https://strudel.cc/)** - Live coding music environment
+- **[CodeMirror](https://codemirror.net/)** - Code editor
+- **[OpenRouter](https://openrouter.ai/)** - AI model routing
+- **WebGL2** - GPU-accelerated visualizations
+
+## Project Structure
+
+```
+src/
+├── pages/
+│   ├── index.astro      # Main UI
+│   └── api/             # AI endpoints (generate, alter, evolve)
+├── lib/
+│   ├── shader.ts        # WebGL particle system
+│   ├── configuration.ts # Visual effect settings
+│   ├── prompts.ts       # AI system prompts
+│   ├── customScope.ts   # Waveform visualizer
+│   └── customSpectrum.ts# Spectrum visualizer
+└── layouts/
+    └── Layout.astro     # Base layout
+```
+
+## License
+
+AGPL - Following Strudel's license. See [Strudel](https://strudel.cc/) for details.
+
+## Contributing
+
+Contributions welcome! Feel free to open issues or submit pull requests.
+
+## Acknowledgments
+
+- [Strudel](https://strudel.cc/) by Alex McLean and contributors
+- [Tidal Cycles](https://tidalcycles.org/) for the live coding paradigm

@@ -93,15 +93,9 @@ export class CustomSpectrum {
     // Debug: log analyzer status (throttled)
     const now = Date.now();
     if (!this._lastDataLog || now - this._lastDataLog > 1000) {
-      console.log('[CustomSpectrum] Frame:', {
-        analyserExists: !!analyser,
-        canvasSize: `${width}x${height}`,
-        isRunning: this.isRunning
-      });
       this._lastDataLog = now;
       if (analyser && !this._debugLogged) {
         this._debugLogged = true;
-        console.log('[CustomSpectrum] Analyzer found! frequencyBinCount:', analyser.frequencyBinCount);
       }
     }
 
@@ -124,13 +118,6 @@ export class CustomSpectrum {
       const min = Math.min(...Array.from(this.dataArray));
       const max = Math.max(...Array.from(this.dataArray));
       const hasSignal = max > -70;
-      console.log('[CustomSpectrum] Data:', {
-        bufferLength,
-        min: min.toFixed(1),
-        max: max.toFixed(1),
-        hasSignal,
-        sample: Array.from(this.dataArray.slice(0, 5)).map(v => v.toFixed(1))
-      });
       this._lastDataLog = now;
     }
 
@@ -185,12 +172,6 @@ export class CustomSpectrum {
     if (this.isRunning) return;
     this.isRunning = true;
     this._debugLogged = false; // Reset debug flag for fresh logs
-
-    console.log('[CustomSpectrum] Starting...', {
-      canvasWidth: this.ctx.canvas.width,
-      canvasHeight: this.ctx.canvas.height,
-      analyserExists: !!window.__scopeAnalyser
-    });
 
     const animate = () => {
       if (!this.isRunning) return;

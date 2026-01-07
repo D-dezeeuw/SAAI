@@ -2,7 +2,7 @@ import { b as buildStage3Prompt, c as chat, S as STAGE3_ALTER_PROMPT } from '../
 export { renderers } from '../../renderers.mjs';
 
 const POST = async ({ request }) => {
-  const apiKey = "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";
+  const apiKey = "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";
   const modelCodegen = "google/gemini-3-flash-preview";
   let body;
   try {

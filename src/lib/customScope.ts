@@ -89,11 +89,9 @@ export class CustomScope {
     // Debug: log analyzer status (throttled, keep checking until analyzer exists)
     const now = Date.now();
     if (!this._debugLogged && (!this._lastDataLog || now - this._lastDataLog > 500)) {
-      console.log('[CustomScope] Analyzer exists:', !!analyser);
       this._lastDataLog = now;
       if (analyser) {
         this._debugLogged = true;
-        console.log('[CustomScope] Analyzer found! frequencyBinCount:', analyser.frequencyBinCount);
       }
     }
 
@@ -143,13 +141,6 @@ export class CustomScope {
       const min = Math.min(...Array.from(this.dataArray));
       const max = Math.max(...Array.from(this.dataArray));
       const hasSignal = max - min > 0.01;
-      console.log('[CustomScope] Data:', {
-        bufferLength,
-        min: min.toFixed(4),
-        max: max.toFixed(4),
-        hasSignal,
-        sample: Array.from(this.dataArray.slice(0, 5)).map(v => v.toFixed(3))
-      });
       this._lastDataLog = now;
     }
 
@@ -193,12 +184,6 @@ export class CustomScope {
     if (this.isRunning) return;
     this.isRunning = true;
     this._debugLogged = false; // Reset debug flag for fresh logs
-
-    console.log('[CustomScope] Starting...', {
-      canvasWidth: this.ctx.canvas.width,
-      canvasHeight: this.ctx.canvas.height,
-      analyserExists: !!window.__scopeAnalyser
-    });
 
     const animate = () => {
       if (!this.isRunning) return;

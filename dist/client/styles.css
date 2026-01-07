@@ -215,7 +215,7 @@ button {
 #code-btn,
 #alter-toggle-btn,
 #play-btn,
-#reset-btn {
+#stop-btn {
   width: 32px;
   height: 32px;
   border-radius: 50%;
@@ -263,20 +263,28 @@ button {
 }
 
 #play-btn.playing {
-  background: #ef4444;
+  background: #f59e0b;
 }
 
 #play-btn.playing:hover {
-  background: #dc2626;
+  background: #d97706;
 }
 
-#reset-btn {
-  background: #6b7280;
+#play-btn.paused {
+  background: #22c55e;
+}
+
+#play-btn.paused:hover {
+  background: #16a34a;
+}
+
+#stop-btn {
+  background: #ef4444;
   color: #fff;
 }
 
-#reset-btn:hover {
-  background: #4b5563;
+#stop-btn:hover {
+  background: #dc2626;
 }
 
 /* Full-page visualization background */
@@ -483,7 +491,7 @@ button {
   z-index: 10;
 }
 
-#code-editor-container #reset-btn {
+#code-editor-container #stop-btn {
   position: absolute;
   top: 1rem;
   right: 1rem;

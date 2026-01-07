@@ -21,6 +21,7 @@ interface Particle {
   alpha: number;
   phase: number;
   twinkleSpeed: number;
+  reactivity: number; // How strongly this particle reacts to bass (0-1)
 }
 
 interface Buffers {
@@ -66,8 +67,8 @@ void main() {
   clipPos.y *= -1.0;
   gl_Position = vec4(clipPos, 0.0, 1.0);
 
-  // Point size with bass pulse
-  gl_PointSize = a_size * (1.0 + u_bass * 0.3);
+  // Point size with bass pulse - more pronounced reaction
+  gl_PointSize = a_size * (0.7 + u_bass * 0.8);
 
   v_color = a_color;
 }`;
@@ -85,12 +86,12 @@ void main() {
 
   if (dist > 1.0) discard;
 
-  // Soft diffuse glow
-  float glow = exp(-dist * dist * 2.0);
+  // Soft diffuse glow - toned down
+  float glow = exp(-dist * dist * 2.5);
   // Subtle core
-  float core = exp(-dist * dist * 6.0);
+  float core = exp(-dist * dist * 8.0);
 
-  float brightness = glow * 0.7 + core * 0.5;
+  float brightness = glow * 0.4 + core * 0.3;
 
   fragColor = vec4(v_color.rgb * brightness, v_color.a * brightness);
 }`;
@@ -190,11 +191,18 @@ function createProgram(gl: WebGL2RenderingContext, fragmentSource: string): WebG
   return program;
 }
 
-// Create particles for a given style - 10x particle counts for dense visuals
+// Create particles for a given style - count based on screen size
 function createParticles(style: string, width: number, height: number): Particle[] {
   const particles: Particle[] = [];
-  // 10x particle counts
-  const count = style === 'stars' ? 400 : style === 'trails' ? 250 : 300;
+  // Base counts scaled by screen area (relative to 1920x1080 = ~2M pixels)
+  const screenArea = width * height;
+  const baseArea = 1920 * 1080;
+  const scaleFactor = Math.sqrt(screenArea / baseArea); // sqrt for gentler scaling
+  const sizeScale = Math.min(1, scaleFactor); // Cap at 1 for size scaling
+
+  // Calculate count with min/max bounds
+  let baseCount = style === 'stars' ? 300 : style === 'trails' ? 150 : 150;
+  const count = Math.max(50, Math.min(baseCount * scaleFactor, baseCount));
 
   for (let i = 0; i < count; i++) {
     const t = i / count;
@@ -216,14 +224,14 @@ function createParticles(style: string, width: number, height: number): Particle
       vy = -0.8 - Math.random() * 0.6; // Upward flow
     }
 
-    // Size based on style - adjusted for punchiness
+    // Size based on style - scaled by screen size for smaller screens
     let baseSize: number;
     if (style === 'orbs') {
-      baseSize = 40 + Math.random() * 60;
+      baseSize = (30 + Math.random() * 40) * sizeScale;
     } else if (style === 'stars') {
-      baseSize = 10 + Math.random() * 20;
+      baseSize = (8 + Math.random() * 15) * sizeScale;
     } else { // trails - tall elongated shapes
-      baseSize = 60 + Math.random() * 80;
+      baseSize = (50 + Math.random() * 60) * sizeScale;
     }
 
     // Color interpolation between cyan and pink
@@ -232,10 +240,10 @@ function createParticles(style: string, width: number, height: number): Particle
     const g = CYAN.g + (PINK.g - CYAN.g) * colorT;
     const b = CYAN.b + (PINK.b - CYAN.b) * colorT;
 
-    // Higher alpha values for punchier visuals
+    // Toned down alpha values
     const alpha = style === 'stars'
-      ? 0.8 + Math.random() * 0.2
-      : 0.7 + Math.random() * 0.3;
+      ? 0.6 + Math.random() * 0.2
+      : 0.5 + Math.random() * 0.35;
 
     particles.push({
       x, y, vx, vy,
@@ -245,18 +253,19 @@ function createParticles(style: string, width: number, height: number): Particle
       alpha,
       phase: Math.random() * Math.PI * 2,
       twinkleSpeed: 1 + Math.random() * 3,
+      reactivity: 0.3 + Math.random() * 0.7, // Random reactivity: 0.3-1.0
     });
   }
 
-  // Add extra large faded background orbs for 'orbs' style
+  // Add extra large faded background orbs for 'orbs' style - scaled by screen size
   if (style === 'orbs') {
-    const largeOrbCount = 50;
+    const largeOrbCount = Math.max(10, Math.floor(25 * scaleFactor));
     for (let i = 0; i < largeOrbCount; i++) {
       const x = Math.random() * width;
       const y = Math.random() * height;
       const vx = (Math.random() - 0.5) * 0.2; // Slower movement
       const vy = -0.1 - Math.random() * 0.2;  // Gentle upward drift
-      const baseSize = 300 + Math.random() * 400; // Massive: 300-700px
+      const baseSize = (150 + Math.random() * 200) * sizeScale; // Scaled: 150-350px on large screens
 
       // Color interpolation
       const colorT = Math.random();
@@ -269,9 +278,10 @@ function createParticles(style: string, width: number, height: number): Particle
         baseSize,
         size: baseSize,
         r, g, b,
-        alpha: 0.06 + Math.random() * 0.08, // Very dim: 0.06-0.14
+        alpha: 0.03 + Math.random() * 0.05, // Dimmer: 0.03-0.08
         phase: Math.random() * Math.PI * 2,
         twinkleSpeed: 0.5 + Math.random() * 1,
+        reactivity: 0.2 + Math.random() * 0.5, // Lower reactivity for background: 0.2-0.7
       });
     }
   }
@@ -473,8 +483,8 @@ export function updateShader(ctx: ShaderContext, audio: AudioData): void {
     if (p.x < -p.size) p.x = canvas.width + p.size;
     if (p.x > canvas.width + p.size) p.x = -p.size;
 
-    // Size pulses with bass
-    p.size = p.baseSize * (1.0 + audio.bass * 0.4);
+    // Size pulses with bass - scaled by particle's reactivity
+    p.size = p.baseSize * (1.0 + audio.bass * 0.5 * p.reactivity);
 
     // Alpha based on intensity - higher base for punchier visuals
     const baseAlpha = 0.6 + audio.intensity * 0.4;
@@ -482,9 +492,9 @@ export function updateShader(ctx: ShaderContext, audio: AudioData): void {
     // Twinkle for stars
     if (currentStyle === 'stars') {
       const twinkle = Math.sin(time * p.twinkleSpeed + p.phase) * 0.5 + 0.5;
-      p.alpha = baseAlpha * (0.6 + twinkle * 0.4 + audio.treble * 0.2);
+      p.alpha = baseAlpha * (0.6 + twinkle * 0.4 + audio.treble * 0.2 * p.reactivity);
     } else {
-      p.alpha = baseAlpha + audio.bass * 0.2; // Extra punch on bass hits
+      p.alpha = baseAlpha + audio.bass * 0.1 * p.reactivity; // Scaled by reactivity
     }
 
     // Color shift with treble

@@ -26,13 +26,13 @@ export interface CustomScopeOptions {
 
 const DEFAULT_OPTIONS: CustomScopeOptions = {
   color: '#FF00FF',
-  thickness: 6,
+  thickness: 3,
   scale: 0.25,
   pos: 0.5,
   align: true,
   trigger: 0,
   glow: true,
-  glowIntensity: 15,
+  glowIntensity: 8,
   smear: 0,
 };
 
@@ -193,6 +193,12 @@ export class CustomScope {
     if (this.isRunning) return;
     this.isRunning = true;
     this._debugLogged = false; // Reset debug flag for fresh logs
+
+    console.log('[CustomScope] Starting...', {
+      canvasWidth: this.ctx.canvas.width,
+      canvasHeight: this.ctx.canvas.height,
+      analyserExists: !!window.__scopeAnalyser
+    });
 
     const animate = () => {
       if (!this.isRunning) return;

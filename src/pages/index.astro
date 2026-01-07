@@ -92,13 +92,14 @@ import Layout from '../layouts/Layout.astro';
   </div>
 
   <script>
-    import { initStrudel, evaluate, hush } from '@strudel/web';
+    import { initStrudel, evaluate, hush, getAudioContext, getAnalyserById } from '@strudel/web';
     import { cleanupDraw, Framer } from '@strudel/draw';
     import { createEditor, getCode, setCode, updateHighlights, clearHighlights, updateSliderWidgets } from '../lib/editor';
     import { sliderWithID } from '@strudel/codemirror';
     import type { EditorView } from '@codemirror/view';
     import { initShader, updateShader, setShaderStyle, setShaderIdle, cleanupShader, type ShaderContext, type AudioData } from '../lib/shader';
     import { CustomScope } from '../lib/customScope';
+    import { CustomSpectrum } from '../lib/customSpectrum';
 
     // Make sliderWithID available globally for evaluated code
     (window as any).sliderWithID = sliderWithID;
@@ -146,6 +147,7 @@ import Layout from '../layouts/Layout.astro';
     let currentVizStyle = 'none'; // Default style
     let audioVizEnabled = true; // Audio visualizers (spectrum, scope, pianoroll) visible by default
     let customScope: CustomScope | null = null; // Custom scope visualizer instance
+    let customSpectrum: CustomSpectrum | null = null; // Custom spectrum visualizer instance
 
     // Example Strudel code - drums in inner stack for bank switching, synths outside
     // Note: Use 808oh for open hihat from Dirt-Samples (oh only works with drum banks)
@@ -172,7 +174,7 @@ stack(
     .delayfb(0.4)
     .room(0.6)
     .gain(0.5)
-)`;
+).analyze('viz')`;
 
     // Debounce timer for code changes
     let codeChangeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -213,46 +215,8 @@ stack(
     let isEvolving: boolean = false;
     let evolveInterval: ReturnType<typeof setInterval> | null = null;
 
-    // Audio interception for CustomScope
-    // Monkey-patch AudioNode.prototype.connect to intercept connections to destination
-    let scopeAnalyserNode: AnalyserNode | null = null;
-    const originalConnect = AudioNode.prototype.connect;
-
-    // @ts-ignore - Overriding connect signature
-    AudioNode.prototype.connect = function(
-      destination: AudioNode | AudioParam,
-      outputIndex?: number,
-      inputIndex?: number
-    ): AudioNode | void {
-      // Call original connect
-      const result = originalConnect.apply(this, [destination, outputIndex, inputIndex] as any);
-
-      // Check if connecting to AudioDestinationNode (the speakers)
-      if (destination instanceof AudioDestinationNode) {
-        // Create analyser if not exists, using same AudioContext
-        if (!scopeAnalyserNode || scopeAnalyserNode.context !== this.context) {
-          scopeAnalyserNode = this.context.createAnalyser();
-          scopeAnalyserNode.fftSize = 2048;
-          scopeAnalyserNode.smoothingTimeConstant = 0.3;
-          window.__scopeAnalyser = scopeAnalyserNode;
-          window.__scopeAudioContext = this.context as AudioContext;
-          console.log('[AudioInterceptor] Created scope analyser from connect() intercept', window.__scopeAnalyser);
-        }
-
-        // Also connect this node to our analyser (parallel to destination)
-        try {
-          console.log('[AudioInterceptor] Source node type:', this.constructor.name);
-          console.log('[AudioInterceptor] Source numberOfOutputs:', this.numberOfOutputs);
-          console.log('[AudioInterceptor] Source channelCount:', this.channelCount);
-          originalConnect.call(this, scopeAnalyserNode);
-          console.log('[AudioInterceptor] Successfully connected to scope analyser');
-        } catch (e) {
-          console.error('[AudioInterceptor] Connection failed:', e);
-        }
-      }
-
-      return result as any;
-    };
+    // We'll use Strudel's built-in analyser system by adding .analyze() to patterns
+    // The analyser is stored in superdough's `analysers` object, accessible via getAnalyserById
 
     // Base samples from dirt-samples and other sources
     const BASE_SAMPLES = new Set([
@@ -370,8 +334,9 @@ stack(
       if ((window as any).__scopeCtx) {
         (window as any).__scopeCtx = createScopeCtxProxy(setupCanvas(scopeCanvas));
       }
-      // Resize custom scope
+      // Resize custom visualizers
       customScope?.resize();
+      customSpectrum?.resize();
     }
 
     window.addEventListener('resize', handleResize);
@@ -882,12 +847,25 @@ stack(
       if (!customScope) {
         customScope = new CustomScope(scopeCanvas, {
           color: '#FF00FF',
-          thickness: 6,
+          thickness: 3,
           scale: 0.25,
           pos: 0.5,
           align: true,
           glow: true,
-          glowIntensity: 15
+          glowIntensity: 8
+        });
+      }
+
+      // Initialize custom spectrum if not exists
+      if (!customSpectrum) {
+        customSpectrum = new CustomSpectrum(spectrumCanvas, {
+          color: '#00FFFF',
+          speed: 1,
+          min: -80,
+          max: 0,
+          thickness: 1,
+          glow: true,
+          glowIntensity: 5
         });
       }
 
@@ -900,33 +878,42 @@ stack(
         }
       }
 
-      // Check if code has multiple statements (setbpm, setcps, etc.)
-      // In that case, we need to append visualization differently
-      const hasMultipleStatements = /^(setbpm|setcps|setBpm|setCps)\s*\(/m.test(code);
+      // Add .analyze('viz') to create a Strudel analyser that both visualizers can use
+      // Skip if code already has .analyze('viz')
+      const alreadyHasAnalyze = /\.analyze\s*\(\s*['"]viz['"]\s*\)/.test(code);
 
       let vizCode: string;
-      if (hasMultipleStatements) {
-        // For multi-statement code, append visualization to the last expression
-        // No offset since we're appending, not wrapping
+      if (alreadyHasAnalyze) {
+        // Code already has analyze, use as-is
         codeOffset = 0;
-        vizCode = code.replace(
-          /(\)\s*)$/,
-          `$1.analyze('spectrum').analyze('scope')
-            .spectrum({ id: 'spectrum', ctx: window.__spectrumCtx, thickness: 2 })
-            .scope({ id: 'scope', ctx: window.__scopeCtx, thickness: 6, scale: 0.25 })`
-        );
+        vizCode = code;
       } else {
-        // Single expression - wrap it with parentheses
-        // This adds 1 character offset for the opening (
-        codeOffset = 1;
-        vizCode = `(${code})
-          .analyze('spectrum').analyze('scope')
-          .spectrum({ id: 'spectrum', ctx: window.__spectrumCtx, thickness: 2 })
-          .scope({ id: 'scope', ctx: window.__scopeCtx, thickness: 6, scale: 0.25 })`;
+        // Check if code has multiple statements (setbpm, setcps, etc.)
+        const hasMultipleStatements = /^(setbpm|setcps|setBpm|setCps)\s*\(/m.test(code);
+
+        if (hasMultipleStatements) {
+          // For multi-statement code, append .analyze() to the last expression
+          codeOffset = 0;
+          vizCode = code.replace(/(\)\s*)$/, `$1.analyze('viz')`);
+        } else {
+          // Single expression - wrap and add .analyze()
+          codeOffset = 1;
+          vizCode = `(${code}).analyze('viz')`;
+        }
       }
 
       try {
         const result = await evaluate(vizCode);
+
+        // Get Strudel's analyser and make it available to our visualizers
+        const strudelAnalyser = getAnalyserById('viz');
+        if (strudelAnalyser) {
+          window.__scopeAnalyser = strudelAnalyser;
+          window.__scopeAudioContext = getAudioContext();
+          console.log('[Visualizer] Using Strudel analyser:', strudelAnalyser);
+        } else {
+          console.warn('[Visualizer] Strudel analyser not found');
+        }
 
         // Debug: log what evaluate returns
         console.log('Evaluate result:', result);
@@ -939,30 +926,14 @@ stack(
         }
 
         startHighlighting();
-        // customScope?.start(); // Disabled to test Strudel's built-in scope
+        // Start custom visualizers (they use window.__scopeAnalyser which now points to Strudel's)
+        customScope?.start();
+        customSpectrum?.start();
         isPlaying = true;
         playBtn.textContent = '■';
         playBtn.className = 'playing';
       } catch (error) {
-        // Fallback: try without visualization if injection fails
-        console.warn('Visualization injection failed, trying without:', error);
-        try {
-          codeOffset = 0; // No wrapping in fallback
-          const result = await evaluate(code);
-
-          // If widgets were found (sliders, etc.), render them in the editor
-          if (result?.widgets?.length > 0) {
-            updateSliderWidgets(editor, result.widgets);
-          }
-
-          startHighlighting();
-          // customScope?.start(); // Disabled to test Strudel's built-in scope
-          isPlaying = true;
-          playBtn.textContent = '■';
-          playBtn.className = 'playing';
-        } catch (e) {
-          console.error('Play error:', e);
-        }
+        console.error('Play error:', error);
       }
     }
 
@@ -981,6 +952,7 @@ stack(
         cleanupDraw(true);
         stopHighlighting();
         customScope?.stop();
+        customSpectrum?.stop();
         isPlaying = false;
         playBtn.textContent = '▶';
         playBtn.className = '';

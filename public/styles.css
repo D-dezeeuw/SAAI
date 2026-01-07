@@ -279,12 +279,15 @@ button {
 }
 
 #stop-btn {
-  background: #ef4444;
-  color: #fff;
+  background: transparent;
+  color: #7d8799;
+  font-size: 1.6rem;
+  width: auto;
+  height: auto;
 }
 
 #stop-btn:hover {
-  background: #dc2626;
+  background: rgba(255, 255, 255, 0.1);
 }
 
 /* Full-page visualization background */
@@ -500,9 +503,11 @@ button {
 
 #code-editor-container #stop-btn {
   position: absolute;
-  top: 1rem;
-  right: 1rem;
+  top: 0.2rem;
+  right: 0.3rem;
   z-index: 10;
+  width: 30px;
+  height: 30px;
 }
 
 .alter-section {
@@ -807,6 +812,14 @@ button {
   color: rgba(255, 255, 255, 0.8);
 }
 
+.shortcuts-footer {
+  padding: 0.75rem 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.4);
+  text-align: center;
+}
+
 /* Toast notification */
 .toast {
   position: fixed;
@@ -850,5 +863,50 @@ button {
   to {
     opacity: 0;
     transform: translateY(1rem);
+  }
+}
+
+/* Mobile responsive styles */
+@media (max-width: 768px) {
+  .input-group {
+    flex-direction: column;
+  }
+
+  .input-group > * {
+    width: 100%;
+  }
+
+  #genre-select,
+  #bank-select {
+    min-width: unset;
+  }
+
+  #prompt-input {
+    flex: unset;
+  }
+
+  #generate-btn {
+    width: 100%;
+  }
+
+  .alter-section {
+    flex-direction: column;
+  }
+
+  .alter-section > * {
+    width: 100%;
+  }
+
+  #alter-input {
+    flex: unset;
+  }
+
+  #alter-btn,
+  #evolve-btn {
+    width: 100%;
+  }
+
+  .shortcuts-popup {
+    max-width: calc(100vw - 2rem);
   }
 }

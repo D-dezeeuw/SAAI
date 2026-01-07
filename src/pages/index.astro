@@ -75,7 +75,7 @@ import Layout from '../layouts/Layout.astro';
 
     <div class="code-section">
       <div id="code-editor-container">
-        <button id="stop-btn" title="Stop">■</button>
+        <button id="stop-btn" title="Reset">↺</button>
         <button id="play-btn" title="Play">▶</button>
       </div>
       <div class="alter-section">
@@ -131,6 +131,9 @@ import Layout from '../layouts/Layout.astro';
         <kbd>&gt;</kbd>
         <span>Next Background</span>
       </div>
+    </div>
+    <div class="shortcuts-footer">
+      Dan de Zeeuw - Neko Media
     </div>
   </div>
 
@@ -1474,18 +1477,19 @@ import Layout from '../layouts/Layout.astro';
     const shortcutsPopup = document.getElementById('shortcuts-popup') as HTMLDivElement;
     const shortcutsClose = document.getElementById('shortcuts-close') as HTMLButtonElement;
 
-    function toggleShortcutsPopup() {
+    function toggleShortcutsPopup(e: Event) {
+      e.stopPropagation(); // Prevent document click from firing
       shortcutsPopup.classList.toggle('hidden');
     }
 
     infoBtn.addEventListener('click', toggleShortcutsPopup);
     shortcutsClose.addEventListener('click', toggleShortcutsPopup);
 
-    // Close popup when clicking outside
+    // Close popup when clicking/tapping outside
     document.addEventListener('click', (e) => {
       if (!shortcutsPopup.classList.contains('hidden') &&
           !shortcutsPopup.contains(e.target as Node) &&
-          e.target !== infoBtn) {
+          !infoBtn.contains(e.target as Node)) { // Use contains() for child elements
         shortcutsPopup.classList.add('hidden');
       }
     });

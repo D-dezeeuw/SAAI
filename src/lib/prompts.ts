@@ -260,7 +260,7 @@ You receive working Strudel code and should make a SMALL, INTERESTING evolution 
 
 ## Evolution Ideas (pick ONE small change)
 - Slightly adjust a filter frequency or add filter modulation
-- Add or remove a subtle effect (reverb, delay, chorus)
+- Add or remove an effect (reverb, delay, chorus)
 - Change velocity/gain patterns for dynamics
 - Add or remove one element (a percussion hit, a note)
 - Shift a note pattern slightly (transpose, invert)

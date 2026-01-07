@@ -51,8 +51,8 @@ export const CONFIG = {
     baseCount: 300,              // Number of particles
     sizeMin: 10,                 // Minimum particle size (px)
     sizeMax: 40,                 // Maximum particle size (px)
-    speed: 1.5,                  // Base movement speed
-    speedVariation: 10,          // Max random speed variation (0 = all same speed)
+    speed: 3,                    // Base movement speed
+    speedVariation: 6,           // Max random speed variation (0 = all same speed)
     directionChangeBeats: 2,     // Change direction every N beats
     fadeFactor: 0.97,            // Trail persistence (0.90 = short, 0.99 = long)
     alphaMin: 0.5,               // Minimum alpha

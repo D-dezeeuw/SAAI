@@ -447,8 +447,9 @@ function createParticles(style: string, width: number, height: number): Particle
       Math.random() * (CONFIG.reactivity.particleReactivityMax - CONFIG.reactivity.particleReactivityMin);
 
     // Speed multiplier for trails (random variation), 1.0 for other styles
+    // Range: 0.3x to (1 + speedVariation/5)x - ensures no balls are nearly stopped
     const speedMultiplier = style === 'trails'
-      ? 1 + (Math.random() - 0.5) * 2 * (CONFIG.trails.speedVariation / 10)
+      ? 0.3 + Math.random() * (0.07 + CONFIG.trails.speedVariation / 15)
       : 1.0;
 
     particles.push({

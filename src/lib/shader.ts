@@ -1,6 +1,8 @@
 // High-performance music-reactive particle system using point sprites
 // Architecture: O(particles) instead of O(pixels × particles)
 
+import { CONFIG } from './configuration';
+
 export interface AudioData {
   intensity: number;    // 0-1, overall activity
   bass: number;         // 0-1, low frequency energy
@@ -21,13 +23,36 @@ interface Particle {
   alpha: number;
   phase: number;
   twinkleSpeed: number;
-  reactivity: number; // How strongly this particle reacts to bass (0-1)
+  reactivity: number;      // How strongly this particle reacts to bass (0-1)
+  speedMultiplier: number; // Individual speed variation for trails
 }
 
 interface Buffers {
   position: WebGLBuffer;
   size: WebGLBuffer;
   color: WebGLBuffer;
+}
+
+interface TrailFramebuffers {
+  fbA: WebGLFramebuffer;
+  fbB: WebGLFramebuffer;
+  texA: WebGLTexture;
+  texB: WebGLTexture;
+  current: 'A' | 'B';
+}
+
+interface QuadResources {
+  vao: WebGLVertexArrayObject;
+  buffer: WebGLBuffer;
+  fadeProgram: WebGLProgram;
+  compositeProgram: WebGLProgram;
+  fadeUniforms: {
+    u_texture: WebGLUniformLocation | null;
+    u_fade: WebGLUniformLocation | null;
+  };
+  compositeUniforms: {
+    u_texture: WebGLUniformLocation | null;
+  };
 }
 
 export interface ShaderContext {
@@ -43,11 +68,20 @@ export interface ShaderContext {
   lastAudio: AudioData;
   isIdle: boolean;
   startTime: number;
+  // Trail-specific resources
+  trailFramebuffers?: TrailFramebuffers;
+  quadResources?: QuadResources;
 }
 
-// Colors
-const CYAN = { r: 0.133, g: 0.827, b: 0.933 };
-const PINK = { r: 0.925, g: 0.282, b: 0.600 };
+// Shorthand color references from config
+const CYAN = CONFIG.colors.cyan;
+const PINK = CONFIG.colors.pink;
+
+// Smoothstep interpolation for smooth direction transitions
+function smoothstep(t: number): number {
+  t = Math.max(0, Math.min(1, t));
+  return t * t * (3 - 2 * t);
+}
 
 // Vertex shader for point sprites
 const VERTEX_SHADER = `#version 300 es
@@ -123,7 +157,7 @@ void main() {
   fragColor = vec4(v_color.rgb * brightness, v_color.a * brightness);
 }`;
 
-// Fragment shader for flowing trails - vertically elongated with bright core
+// Fragment shader for flowing trails - simple circular dot (framebuffer handles the trail)
 const TRAILS_FRAGMENT = `#version 300 es
 precision highp float;
 
@@ -132,23 +166,55 @@ out vec4 fragColor;
 
 void main() {
   vec2 coord = gl_PointCoord * 2.0 - 1.0;
-
-  // Vertically elongated ellipse (fits in square point sprite)
-  vec2 stretched = vec2(coord.x, coord.y * 0.35);
-  float dist = length(stretched);
+  float dist = length(coord);
 
   if (dist > 1.0) discard;
 
-  // Soft outer glow
-  float glow = exp(-dist * dist * 1.2);
-  // Bright hot core
-  float core = exp(-dist * dist * 6.0);
+  // Soft circular dot with bright core
+  float glow = exp(-dist * dist * 3.0);
+  float core = exp(-dist * dist * 10.0);
 
-  // Fade toward bottom (tail effect)
-  float tailFade = 0.6 + 0.4 * (1.0 - gl_PointCoord.y);
+  float brightness = glow * 0.5 + core * 0.8;
 
-  float brightness = (glow + core * 1.8) * tailFade;
   fragColor = vec4(v_color.rgb * brightness, v_color.a * brightness);
+}`;
+
+// Vertex shader for fullscreen quad (fade pass and composite)
+const QUAD_VERTEX = `#version 300 es
+in vec2 a_position;
+out vec2 v_texCoord;
+
+void main() {
+  gl_Position = vec4(a_position, 0.0, 1.0);
+  v_texCoord = a_position * 0.5 + 0.5;
+}`;
+
+// Fragment shader for fading previous frame (trail persistence)
+const FADE_FRAGMENT = `#version 300 es
+precision highp float;
+
+uniform sampler2D u_texture;
+uniform float u_fade;
+
+in vec2 v_texCoord;
+out vec4 fragColor;
+
+void main() {
+  vec4 color = texture(u_texture, v_texCoord);
+  fragColor = color * u_fade;
+}`;
+
+// Fragment shader for compositing framebuffer to screen
+const COMPOSITE_FRAGMENT = `#version 300 es
+precision highp float;
+
+uniform sampler2D u_texture;
+
+in vec2 v_texCoord;
+out vec4 fragColor;
+
+void main() {
+  fragColor = texture(u_texture, v_texCoord);
 }`;
 
 // Compile shader
@@ -191,6 +257,121 @@ function createProgram(gl: WebGL2RenderingContext, fragmentSource: string): WebG
   return program;
 }
 
+// Create program with custom vertex shader
+function createProgramWithVertex(gl: WebGL2RenderingContext, vertexSource: string, fragmentSource: string): WebGLProgram {
+  const vertexShader = compileShader(gl, gl.VERTEX_SHADER, vertexSource);
+  const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, fragmentSource);
+
+  const program = gl.createProgram();
+  if (!program) throw new Error('Failed to create program');
+
+  gl.attachShader(program, vertexShader);
+  gl.attachShader(program, fragmentShader);
+  gl.linkProgram(program);
+
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    const info = gl.getProgramInfoLog(program);
+    throw new Error('Program link error: ' + info);
+  }
+
+  gl.deleteShader(vertexShader);
+  gl.deleteShader(fragmentShader);
+
+  return program;
+}
+
+// Create trail framebuffers for ping-pong technique
+function createTrailFramebuffers(gl: WebGL2RenderingContext, width: number, height: number): TrailFramebuffers {
+  const createFB = (): { fb: WebGLFramebuffer; tex: WebGLTexture } => {
+    const fb = gl.createFramebuffer();
+    if (!fb) throw new Error('Failed to create framebuffer');
+
+    const tex = gl.createTexture();
+    if (!tex) throw new Error('Failed to create texture');
+
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+
+    // Clear framebuffer to transparent
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+
+    return { fb, tex };
+  };
+
+  const a = createFB();
+  const b = createFB();
+
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.bindTexture(gl.TEXTURE_2D, null);
+
+  return {
+    fbA: a.fb,
+    fbB: b.fb,
+    texA: a.tex,
+    texB: b.tex,
+    current: 'A',
+  };
+}
+
+// Create quad resources for fullscreen passes
+function createQuadResources(gl: WebGL2RenderingContext): QuadResources {
+  // Create fullscreen quad vertices: two triangles
+  const quadVertices = new Float32Array([
+    -1, -1,
+     1, -1,
+    -1,  1,
+     1,  1,
+  ]);
+
+  const buffer = gl.createBuffer();
+  if (!buffer) throw new Error('Failed to create quad buffer');
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW);
+
+  // Create fade program
+  const fadeProgram = createProgramWithVertex(gl, QUAD_VERTEX, FADE_FRAGMENT);
+  const fadeUniforms = {
+    u_texture: gl.getUniformLocation(fadeProgram, 'u_texture'),
+    u_fade: gl.getUniformLocation(fadeProgram, 'u_fade'),
+  };
+
+  // Create composite program
+  const compositeProgram = createProgramWithVertex(gl, QUAD_VERTEX, COMPOSITE_FRAGMENT);
+  const compositeUniforms = {
+    u_texture: gl.getUniformLocation(compositeProgram, 'u_texture'),
+  };
+
+  // Create VAO for quad
+  const vao = gl.createVertexArray();
+  if (!vao) throw new Error('Failed to create quad VAO');
+  gl.bindVertexArray(vao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+
+  // Position attribute (same location for both programs)
+  const posLoc = gl.getAttribLocation(fadeProgram, 'a_position');
+  gl.enableVertexAttribArray(posLoc);
+  gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+
+  gl.bindVertexArray(null);
+
+  return {
+    vao,
+    buffer,
+    fadeProgram,
+    compositeProgram,
+    fadeUniforms,
+    compositeUniforms,
+  };
+}
+
 // Create particles for a given style - count based on screen size
 function createParticles(style: string, width: number, height: number): Particle[] {
   const particles: Particle[] = [];
@@ -200,13 +381,12 @@ function createParticles(style: string, width: number, height: number): Particle
   const scaleFactor = Math.sqrt(screenArea / baseArea); // sqrt for gentler scaling
   const sizeScale = Math.min(1, scaleFactor); // Cap at 1 for size scaling
 
-  // Calculate count with min/max bounds
-  let baseCount = style === 'stars' ? 300 : style === 'trails' ? 150 : 150;
+  // Get style-specific config
+  const styleConfig = CONFIG[style as keyof typeof CONFIG] as typeof CONFIG.orbs;
+  const baseCount = styleConfig?.baseCount || 150;
   const count = Math.max(50, Math.min(baseCount * scaleFactor, baseCount));
 
   for (let i = 0; i < count; i++) {
-    const t = i / count;
-
     // Initial random position
     const x = Math.random() * width;
     const y = Math.random() * height;
@@ -214,24 +394,29 @@ function createParticles(style: string, width: number, height: number): Particle
     // Velocity based on style
     let vx = 0, vy = 0;
     if (style === 'orbs') {
-      vx = (Math.random() - 0.5) * 0.5;
-      vy = -0.3 - Math.random() * 0.5; // Upward drift
+      const cfg = CONFIG.orbs;
+      vx = (Math.random() - 0.5) * cfg.velocityX * 2;
+      vy = cfg.velocityYMin + Math.random() * (cfg.velocityYMax - cfg.velocityYMin);
     } else if (style === 'stars') {
-      vx = (Math.random() - 0.5) * 0.3;
-      vy = (Math.random() - 0.5) * 0.3;
-    } else { // trails - upward flowing
-      vx = (Math.random() - 0.5) * 0.4;
-      vy = -0.8 - Math.random() * 0.6; // Upward flow
+      const cfg = CONFIG.stars;
+      vx = (Math.random() - 0.5) * cfg.velocityRange * 2;
+      vy = (Math.random() - 0.5) * cfg.velocityRange * 2;
+    } else { // trails
+      vx = CONFIG.trails.speed; // Initial velocity (direction changes dynamically)
+      vy = 0;
     }
 
     // Size based on style - scaled by screen size for smaller screens
     let baseSize: number;
     if (style === 'orbs') {
-      baseSize = (30 + Math.random() * 40) * sizeScale;
+      const cfg = CONFIG.orbs;
+      baseSize = (cfg.sizeMin + Math.random() * (cfg.sizeMax - cfg.sizeMin)) * sizeScale;
     } else if (style === 'stars') {
-      baseSize = (8 + Math.random() * 15) * sizeScale;
-    } else { // trails - tall elongated shapes
-      baseSize = (50 + Math.random() * 60) * sizeScale;
+      const cfg = CONFIG.stars;
+      baseSize = (cfg.sizeMin + Math.random() * (cfg.sizeMax - cfg.sizeMin)) * sizeScale;
+    } else { // trails
+      const cfg = CONFIG.trails;
+      baseSize = (cfg.sizeMin + Math.random() * (cfg.sizeMax - cfg.sizeMin)) * sizeScale;
     }
 
     // Color interpolation between cyan and pink
@@ -240,10 +425,31 @@ function createParticles(style: string, width: number, height: number): Particle
     const g = CYAN.g + (PINK.g - CYAN.g) * colorT;
     const b = CYAN.b + (PINK.b - CYAN.b) * colorT;
 
-    // Toned down alpha values
-    const alpha = style === 'stars'
-      ? 0.6 + Math.random() * 0.2
-      : 0.5 + Math.random() * 0.35;
+    // Alpha values from config
+    let alpha: number;
+    if (style === 'stars') {
+      const cfg = CONFIG.stars;
+      alpha = cfg.alphaMin + Math.random() * (cfg.alphaMax - cfg.alphaMin);
+    } else if (style === 'orbs') {
+      const cfg = CONFIG.orbs;
+      alpha = cfg.alphaMin + Math.random() * (cfg.alphaMax - cfg.alphaMin);
+    } else {
+      const cfg = CONFIG.trails;
+      alpha = cfg.alphaMin + Math.random() * (cfg.alphaMax - cfg.alphaMin);
+    }
+
+    // Twinkle speed from config
+    const twinkleSpeed = CONFIG.stars.twinkleSpeedMin +
+      Math.random() * (CONFIG.stars.twinkleSpeedMax - CONFIG.stars.twinkleSpeedMin);
+
+    // Reactivity from config
+    const reactivity = CONFIG.reactivity.particleReactivityMin +
+      Math.random() * (CONFIG.reactivity.particleReactivityMax - CONFIG.reactivity.particleReactivityMin);
+
+    // Speed multiplier for trails (random variation), 1.0 for other styles
+    const speedMultiplier = style === 'trails'
+      ? 1 + (Math.random() - 0.5) * 2 * (CONFIG.trails.speedVariation / 10)
+      : 1.0;
 
     particles.push({
       x, y, vx, vy,
@@ -252,20 +458,22 @@ function createParticles(style: string, width: number, height: number): Particle
       r, g, b,
       alpha,
       phase: Math.random() * Math.PI * 2,
-      twinkleSpeed: 1 + Math.random() * 3,
-      reactivity: 0.3 + Math.random() * 0.7, // Random reactivity: 0.3-1.0
+      twinkleSpeed,
+      reactivity,
+      speedMultiplier,
     });
   }
 
   // Add extra large faded background orbs for 'orbs' style - scaled by screen size
   if (style === 'orbs') {
-    const largeOrbCount = Math.max(10, Math.floor(25 * scaleFactor));
+    const cfg = CONFIG.orbs;
+    const largeOrbCount = Math.max(10, Math.floor(cfg.largeOrbCount * scaleFactor));
     for (let i = 0; i < largeOrbCount; i++) {
       const x = Math.random() * width;
       const y = Math.random() * height;
       const vx = (Math.random() - 0.5) * 0.2; // Slower movement
       const vy = -0.1 - Math.random() * 0.2;  // Gentle upward drift
-      const baseSize = (150 + Math.random() * 200) * sizeScale; // Scaled: 150-350px on large screens
+      const baseSize = (cfg.largeSizeMin + Math.random() * (cfg.largeSizeMax - cfg.largeSizeMin)) * sizeScale;
 
       // Color interpolation
       const colorT = Math.random();
@@ -278,10 +486,11 @@ function createParticles(style: string, width: number, height: number): Particle
         baseSize,
         size: baseSize,
         r, g, b,
-        alpha: 0.03 + Math.random() * 0.05, // Dimmer: 0.03-0.08
+        alpha: cfg.largeAlphaMin + Math.random() * (cfg.largeAlphaMax - cfg.largeAlphaMin),
         phase: Math.random() * Math.PI * 2,
         twinkleSpeed: 0.5 + Math.random() * 1,
-        reactivity: 0.2 + Math.random() * 0.5, // Lower reactivity for background: 0.2-0.7
+        reactivity: 0.2 + Math.random() * 0.5, // Lower reactivity for background
+        speedMultiplier: 1.0, // Large orbs don't need speed variation
       });
     }
   }
@@ -359,6 +568,14 @@ export function initShader(canvas: HTMLCanvasElement, style: string): ShaderCont
     u_time: gl.getUniformLocation(program, 'u_time'),
   };
 
+  // Create trail-specific resources if needed
+  const trailFramebuffers = style === 'trails'
+    ? createTrailFramebuffers(gl, canvas.width, canvas.height)
+    : undefined;
+  const quadResources = style === 'trails'
+    ? createQuadResources(gl)
+    : undefined;
+
   const ctx: ShaderContext = {
     canvas,
     gl,
@@ -376,6 +593,8 @@ export function initShader(canvas: HTMLCanvasElement, style: string): ShaderCont
     lastAudio: { intensity: 0, bass: 0, treble: 0, time: 0 },
     isIdle: true,
     startTime: performance.now(),
+    trailFramebuffers,
+    quadResources,
   };
 
   // Initial buffer upload
@@ -384,12 +603,24 @@ export function initShader(canvas: HTMLCanvasElement, style: string): ShaderCont
   // Start render loop
   startRenderLoop(ctx);
 
-  // Handle resize
-  window.addEventListener('resize', () => {
+  // Handle resize - recreate framebuffers if trails
+  const resizeHandler = () => {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
     gl.viewport(0, 0, canvas.width, canvas.height);
-  });
+
+    // Recreate framebuffers on resize for trails
+    if (ctx.currentStyle === 'trails' && ctx.trailFramebuffers) {
+      // Clean up old framebuffers
+      gl.deleteFramebuffer(ctx.trailFramebuffers.fbA);
+      gl.deleteFramebuffer(ctx.trailFramebuffers.fbB);
+      gl.deleteTexture(ctx.trailFramebuffers.texA);
+      gl.deleteTexture(ctx.trailFramebuffers.texB);
+      // Create new ones
+      ctx.trailFramebuffers = createTrailFramebuffers(gl, canvas.width, canvas.height);
+    }
+  };
+  window.addEventListener('resize', resizeHandler);
 
   return ctx;
 }
@@ -430,27 +661,102 @@ function startRenderLoop(ctx: ShaderContext): void {
 
     const time = (performance.now() - startTime) / 1000;
 
-    gl.viewport(0, 0, canvas.width, canvas.height);
-    gl.clearColor(0, 0, 0, 0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
+    // Trails use special framebuffer ping-pong technique
+    if (currentStyle === 'trails' && ctx.trailFramebuffers && ctx.quadResources) {
+      renderTrails(ctx, time);
+    } else {
+      // Standard rendering for orbs and stars
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
 
-    const program = programs[currentStyle];
-    gl.useProgram(program);
+      const program = programs[currentStyle];
+      gl.useProgram(program);
 
-    // Update uniforms
-    gl.uniform2f(uniforms.u_resolution, canvas.width, canvas.height);
-    gl.uniform1f(uniforms.u_bass, lastAudio.bass);
-    gl.uniform1f(uniforms.u_time, time);
+      // Update uniforms
+      gl.uniform2f(uniforms.u_resolution, canvas.width, canvas.height);
+      gl.uniform1f(uniforms.u_bass, lastAudio.bass);
+      gl.uniform1f(uniforms.u_time, time);
 
-    // Draw particles
-    gl.bindVertexArray(vao);
-    gl.drawArrays(gl.POINTS, 0, particles.length);
-    gl.bindVertexArray(null);
+      // Draw particles
+      gl.bindVertexArray(vao);
+      gl.drawArrays(gl.POINTS, 0, particles.length);
+      gl.bindVertexArray(null);
+    }
 
     ctx.animationId = requestAnimationFrame(render);
   };
 
   render();
+}
+
+// Render trails with framebuffer ping-pong for persistence
+function renderTrails(ctx: ShaderContext, time: number): void {
+  const { gl, programs, uniforms, particles, vao, canvas, lastAudio, trailFramebuffers, quadResources } = ctx;
+
+  if (!trailFramebuffers || !quadResources) return;
+
+  const { fbA, fbB, texA, texB, current } = trailFramebuffers;
+
+  // Determine source and target framebuffers
+  const targetFB = current === 'A' ? fbB : fbA;
+  const sourceTex = current === 'A' ? texA : texB;
+  const targetTex = current === 'A' ? texB : texA;
+
+  // Step 1: Bind target framebuffer
+  gl.bindFramebuffer(gl.FRAMEBUFFER, targetFB);
+  gl.viewport(0, 0, canvas.width, canvas.height);
+
+  // Step 2: Draw faded previous frame from source texture
+  gl.useProgram(quadResources.fadeProgram);
+  gl.bindTexture(gl.TEXTURE_2D, sourceTex);
+  gl.uniform1i(quadResources.fadeUniforms.u_texture, 0);
+  gl.uniform1f(quadResources.fadeUniforms.u_fade, CONFIG.trails.fadeFactor);
+
+  // Disable blending for fade pass (we want exact fade multiplication)
+  gl.disable(gl.BLEND);
+
+  gl.bindVertexArray(quadResources.vao);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  gl.bindVertexArray(null);
+
+  // Step 3: Draw new particles on top with additive blending
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+
+  const program = programs['trails'];
+  gl.useProgram(program);
+
+  gl.uniform2f(uniforms.u_resolution, canvas.width, canvas.height);
+  gl.uniform1f(uniforms.u_bass, lastAudio.bass);
+  gl.uniform1f(uniforms.u_time, time);
+
+  gl.bindVertexArray(vao);
+  gl.drawArrays(gl.POINTS, 0, particles.length);
+  gl.bindVertexArray(null);
+
+  // Step 4: Composite to screen
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  gl.clearColor(0, 0, 0, 0);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+
+  // Use regular blending to composite the result
+  gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+
+  gl.useProgram(quadResources.compositeProgram);
+  gl.bindTexture(gl.TEXTURE_2D, targetTex);
+  gl.uniform1i(quadResources.compositeUniforms.u_texture, 0);
+
+  gl.bindVertexArray(quadResources.vao);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  gl.bindVertexArray(null);
+
+  // Reset blend mode
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+
+  // Step 5: Swap framebuffers
+  trailFramebuffers.current = current === 'A' ? 'B' : 'A';
 }
 
 // Update particles - called at musical time intervals, not every frame
@@ -464,27 +770,82 @@ export function updateShader(ctx: ShaderContext, audio: AudioData): void {
   for (let i = 0; i < particles.length; i++) {
     const p = particles[i];
 
-    // Movement with simple sin/cos wobble (no expensive noise)
-    const wobbleX = Math.sin(time * 0.5 + p.phase) * 2;
-    const wobbleY = Math.cos(time * 0.3 + p.phase * 1.5) * 1.5;
+    if (currentStyle === 'trails') {
+      // Trails: smooth direction changes every N beats (same for all particles)
+      const cfg = CONFIG.trails;
 
-    p.x += p.vx + wobbleX * 0.3;
-    p.y += p.vy + wobbleY * 0.3;
+      // Get current and previous beat phases for interpolation
+      const beatProgress = time / cfg.directionChangeBeats;
+      const currentPhase = Math.floor(beatProgress);
+      const prevPhase = currentPhase - 1;
 
-    // Wrap around screen
-    if (p.y < -p.size) {
-      p.y = canvas.height + p.size;
-      p.x = Math.random() * canvas.width;
+      // Interpolation factor (0 to 1 within current beat cycle)
+      const t = beatProgress - currentPhase;
+      const smoothT = smoothstep(t);
+
+      // Calculate direction for current phase (seeded random)
+      const seedX1 = Math.sin(currentPhase * 12.9898) * 43758.5453;
+      const seedY1 = Math.sin(currentPhase * 78.233) * 43758.5453;
+      const currDirX = ((seedX1 - Math.floor(seedX1)) * 2 - 1) * 10;
+      const currDirY = ((seedY1 - Math.floor(seedY1)) * 2 - 1) * 10;
+
+      // Calculate direction for previous phase (seeded random)
+      const seedX0 = Math.sin(prevPhase * 12.9898) * 43758.5453;
+      const seedY0 = Math.sin(prevPhase * 78.233) * 43758.5453;
+      const prevDirX = ((seedX0 - Math.floor(seedX0)) * 2 - 1) * 10;
+      const prevDirY = ((seedY0 - Math.floor(seedY0)) * 2 - 1) * 10;
+
+      // Smoothly interpolate between previous and current direction
+      const dirX = prevDirX + (currDirX - prevDirX) * smoothT;
+      const dirY = prevDirY + (currDirY - prevDirY) * smoothT;
+
+      // Normalize to consistent speed
+      const len = Math.sqrt(dirX * dirX + dirY * dirY) || 1;
+
+      p.x += (dirX / len) * cfg.speed * p.speedMultiplier;
+      p.y += (dirY / len) * cfg.speed * p.speedMultiplier;
+
+      // Wrap around screen edges
+      if (p.x > canvas.width + p.size) {
+        p.x = -p.size;
+        p.y = Math.random() * canvas.height;
+      }
+      if (p.x < -p.size) {
+        p.x = canvas.width + p.size;
+        p.y = Math.random() * canvas.height;
+      }
+      if (p.y > canvas.height + p.size) {
+        p.y = -p.size;
+        p.x = Math.random() * canvas.width;
+      }
+      if (p.y < -p.size) {
+        p.y = canvas.height + p.size;
+        p.x = Math.random() * canvas.width;
+      }
+    } else {
+      // Other styles: movement with sin/cos wobble
+      const wobbleX = Math.sin(time * 0.5 + p.phase) * 2;
+      const wobbleY = Math.cos(time * 0.3 + p.phase * 1.5) * 1.5;
+
+      p.x += p.vx + wobbleX * 0.3;
+      p.y += p.vy + wobbleY * 0.3;
+
+      // Wrap around screen
+      if (p.y < -p.size) {
+        p.y = canvas.height + p.size;
+        p.x = Math.random() * canvas.width;
+      }
+      if (p.y > canvas.height + p.size) {
+        p.y = -p.size;
+        p.x = Math.random() * canvas.width;
+      }
+      if (p.x < -p.size) p.x = canvas.width + p.size;
+      if (p.x > canvas.width + p.size) p.x = -p.size;
     }
-    if (p.y > canvas.height + p.size) {
-      p.y = -p.size;
-      p.x = Math.random() * canvas.width;
-    }
-    if (p.x < -p.size) p.x = canvas.width + p.size;
-    if (p.x > canvas.width + p.size) p.x = -p.size;
 
     // Size pulses with bass - scaled by particle's reactivity
-    p.size = p.baseSize * (1.0 + audio.bass * 0.5 * p.reactivity);
+    const react = CONFIG.reactivity;
+    p.size = p.baseSize * (1.0 + audio.bass * react.bassSizeMultiplier * p.reactivity);
 
     // Alpha based on intensity - higher base for punchier visuals
     const baseAlpha = 0.6 + audio.intensity * 0.4;
@@ -494,11 +855,11 @@ export function updateShader(ctx: ShaderContext, audio: AudioData): void {
       const twinkle = Math.sin(time * p.twinkleSpeed + p.phase) * 0.5 + 0.5;
       p.alpha = baseAlpha * (0.6 + twinkle * 0.4 + audio.treble * 0.2 * p.reactivity);
     } else {
-      p.alpha = baseAlpha + audio.bass * 0.1 * p.reactivity; // Scaled by reactivity
+      p.alpha = baseAlpha + audio.bass * react.bassAlphaMultiplier * p.reactivity;
     }
 
     // Color shift with treble
-    const colorShift = audio.treble * 0.3;
+    const colorShift = audio.treble * react.trebleColorShift;
     const baseColorT = (Math.sin(p.phase) * 0.5 + 0.5);
     const colorT = Math.min(1, baseColorT + colorShift);
     p.r = CYAN.r + (PINK.r - CYAN.r) * colorT;
@@ -514,7 +875,8 @@ export function updateShader(ctx: ShaderContext, audio: AudioData): void {
 export function setShaderIdle(ctx: ShaderContext): void {
   ctx.isIdle = true;
   // Keep particles gently moving with modest values for visibility
-  updateShader(ctx, { intensity: 0.3, bass: 0.1, treble: 0.1, time: ctx.lastAudio.time });
+  const idle = CONFIG.idle;
+  updateShader(ctx, { intensity: idle.intensity, bass: idle.bass, treble: idle.treble, time: ctx.lastAudio.time });
 }
 
 // Change visual style
@@ -522,6 +884,30 @@ export function setShaderStyle(ctx: ShaderContext, style: string): void {
   if (ctx.currentStyle === style) return;
 
   const { gl, canvas, programs, buffers, vao } = ctx;
+  const wasTrails = ctx.currentStyle === 'trails';
+  const willBeTrails = style === 'trails';
+
+  // Clean up old trail resources if switching away from trails
+  if (wasTrails && ctx.trailFramebuffers) {
+    gl.deleteFramebuffer(ctx.trailFramebuffers.fbA);
+    gl.deleteFramebuffer(ctx.trailFramebuffers.fbB);
+    gl.deleteTexture(ctx.trailFramebuffers.texA);
+    gl.deleteTexture(ctx.trailFramebuffers.texB);
+    ctx.trailFramebuffers = undefined;
+  }
+  if (wasTrails && ctx.quadResources) {
+    gl.deleteProgram(ctx.quadResources.fadeProgram);
+    gl.deleteProgram(ctx.quadResources.compositeProgram);
+    gl.deleteVertexArray(ctx.quadResources.vao);
+    gl.deleteBuffer(ctx.quadResources.buffer);
+    ctx.quadResources = undefined;
+  }
+
+  // Create trail resources if switching to trails
+  if (willBeTrails && !ctx.trailFramebuffers) {
+    ctx.trailFramebuffers = createTrailFramebuffers(gl, canvas.width, canvas.height);
+    ctx.quadResources = createQuadResources(gl);
+  }
 
   // Recreate particles for new style
   ctx.particles = createParticles(style, canvas.width, canvas.height);
@@ -582,4 +968,18 @@ export function cleanupShader(ctx: ShaderContext): void {
   gl.deleteBuffer(buffers.size);
   gl.deleteBuffer(buffers.color);
   gl.deleteVertexArray(vao);
+
+  // Clean up trail resources
+  if (ctx.trailFramebuffers) {
+    gl.deleteFramebuffer(ctx.trailFramebuffers.fbA);
+    gl.deleteFramebuffer(ctx.trailFramebuffers.fbB);
+    gl.deleteTexture(ctx.trailFramebuffers.texA);
+    gl.deleteTexture(ctx.trailFramebuffers.texB);
+  }
+  if (ctx.quadResources) {
+    gl.deleteProgram(ctx.quadResources.fadeProgram);
+    gl.deleteProgram(ctx.quadResources.compositeProgram);
+    gl.deleteVertexArray(ctx.quadResources.vao);
+    gl.deleteBuffer(ctx.quadResources.buffer);
+  }
 }

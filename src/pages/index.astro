@@ -91,6 +91,49 @@ import Layout from '../layouts/Layout.astro';
 
   </div>
 
+  <!-- Info button (bottom-left) -->
+  <button id="info-btn" class="info-btn" title="Keyboard Shortcuts">
+    <span>i</span>
+  </button>
+
+  <!-- Shortcuts popup -->
+  <div id="shortcuts-popup" class="shortcuts-popup hidden">
+    <div class="shortcuts-header">
+      <span>Keyboard Shortcuts</span>
+      <button id="shortcuts-close" class="shortcuts-close">&times;</button>
+    </div>
+    <div class="shortcuts-list">
+      <div class="shortcut-item">
+        <kbd>K</kbd>
+        <span>Play / Stop</span>
+      </div>
+      <div class="shortcut-item">
+        <kbd>H</kbd>
+        <span>Hide / Show UI</span>
+      </div>
+      <div class="shortcut-item">
+        <kbd>V</kbd>
+        <span>Toggle Visualizers</span>
+      </div>
+      <div class="shortcut-item">
+        <kbd>B</kbd>
+        <span>Toggle Background</span>
+      </div>
+      <div class="shortcut-item">
+        <kbd>A</kbd>
+        <span>Toggle Visuals Only</span>
+      </div>
+      <div class="shortcut-item">
+        <kbd>&lt;</kbd>
+        <span>Previous Background</span>
+      </div>
+      <div class="shortcut-item">
+        <kbd>&gt;</kbd>
+        <span>Next Background</span>
+      </div>
+    </div>
+  </div>
+
   <script>
     import { initStrudel, evaluate, hush, getAudioContext, getAnalyserById } from '@strudel/web';
     import { cleanupDraw, Framer } from '@strudel/draw';
@@ -144,7 +187,7 @@ import Layout from '../layouts/Layout.astro';
     const vizButtons = vizDropdown.querySelectorAll('button[data-viz]') as NodeListOf<HTMLButtonElement>;
     const audioVizBtn = document.getElementById('audio-viz-btn') as HTMLButtonElement;
     const logoElement = document.querySelector('.header h1') as HTMLElement;
-    let currentVizStyle = 'none'; // Default style
+    let currentVizStyle = 'orbs'; // Default style
     let audioVizEnabled = true; // Audio visualizers (spectrum, scope, pianoroll) visible by default
     let customScope: CustomScope | null = null; // Custom scope visualizer instance
     let customSpectrum: CustomSpectrum | null = null; // Custom spectrum visualizer instance
@@ -1048,6 +1091,199 @@ stack(
       panelsVisible = !panelsVisible;
     }
 
+    // Toggle background visualization between "none" and "orbs"
+    function toggleBackgroundVis() {
+      const newStyle = currentVizStyle === 'none' ? 'orbs' : 'none';
+
+      // Update dropdown active state
+      vizButtons.forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.viz === newStyle);
+      });
+      currentVizStyle = newStyle;
+      vizBtn.classList.toggle('active', newStyle !== 'none');
+
+      if (newStyle === 'none') {
+        // Cleanup shader
+        if (window.__shaderCtx) {
+          cleanupShader(window.__shaderCtx);
+          window.__shaderCtx = undefined;
+          const gl = shaderCanvas.getContext('webgl2');
+          if (gl) {
+            gl.clearColor(0, 0, 0, 0);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+          }
+        }
+      } else {
+        // Initialize or switch to orbs
+        if (window.__shaderCtx) {
+          setShaderStyle(window.__shaderCtx, newStyle);
+        } else {
+          try {
+            window.__shaderCtx = initShader(shaderCanvas, newStyle);
+            setShaderIdle(window.__shaderCtx);
+          } catch (e) {
+            console.warn('Shader initialization failed:', e);
+          }
+        }
+      }
+    }
+
+    // Cycle through background visualization styles
+    const vizStyles = ['none', 'orbs', 'stars', 'trails'];
+
+    function cycleBackgroundViz(direction: number) {
+      const currentIndex = vizStyles.indexOf(currentVizStyle);
+      let newIndex = currentIndex + direction;
+
+      // Wrap around
+      if (newIndex < 0) newIndex = vizStyles.length - 1;
+      if (newIndex >= vizStyles.length) newIndex = 0;
+
+      const newStyle = vizStyles[newIndex];
+
+      // Update dropdown active state
+      vizButtons.forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.viz === newStyle);
+      });
+      currentVizStyle = newStyle;
+      vizBtn.classList.toggle('active', newStyle !== 'none');
+
+      if (newStyle === 'none') {
+        // Cleanup shader
+        if (window.__shaderCtx) {
+          cleanupShader(window.__shaderCtx);
+          window.__shaderCtx = undefined;
+          const gl = shaderCanvas.getContext('webgl2');
+          if (gl) {
+            gl.clearColor(0, 0, 0, 0);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+          }
+        }
+      } else {
+        // Initialize or switch style
+        if (window.__shaderCtx) {
+          setShaderStyle(window.__shaderCtx, newStyle);
+        } else {
+          try {
+            window.__shaderCtx = initShader(shaderCanvas, newStyle);
+            setShaderIdle(window.__shaderCtx);
+          } catch (e) {
+            console.warn('Shader initialization failed:', e);
+          }
+        }
+      }
+    }
+
+    // Toggle audio visualizers (spectrum, scope, pianoroll)
+    function toggleAudioVisualizers() {
+      audioVizEnabled = !audioVizEnabled;
+      audioVizBtn.classList.toggle('active', audioVizEnabled);
+      spectrumCanvas.classList.toggle('hidden', !audioVizEnabled);
+      scopeCanvas.classList.toggle('hidden', !audioVizEnabled);
+      pianorollCanvas.classList.toggle('hidden', !audioVizEnabled);
+    }
+
+    // Toggle "visuals only" mode - hide UI, enable all visualizers, set background to orbs
+    let visualsOnlyMode = false;
+    let savedAudioVizState = true;
+    let savedVizStyle = 'orbs';
+
+    function toggleVisualsOnlyMode() {
+      if (!visualsOnlyMode) {
+        // Entering visuals-only mode - save states first
+        savedCodeState = !codeSection.classList.contains('hidden');
+        savedGenerateState = !generatePanel.classList.contains('hidden');
+        savedAlterState = !alterSection.classList.contains('hidden');
+        savedAudioVizState = audioVizEnabled;
+        savedVizStyle = currentVizStyle;
+
+        // Hide all UI panels
+        codeSection.classList.add('hidden');
+        generatePanel.classList.add('hidden');
+        alterSection.classList.add('hidden');
+        codeBtn.classList.remove('active');
+        aiBtn.classList.remove('active');
+        alterToggleBtn.classList.remove('active');
+        panelsVisible = false;
+
+        // Enable audio visualizers
+        audioVizEnabled = true;
+        audioVizBtn.classList.add('active');
+        spectrumCanvas.classList.remove('hidden');
+        scopeCanvas.classList.remove('hidden');
+        pianorollCanvas.classList.remove('hidden');
+
+        // Set background to "glowing orbs"
+        if (currentVizStyle !== 'orbs') {
+          vizButtons.forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.viz === 'orbs');
+          });
+          currentVizStyle = 'orbs';
+          vizBtn.classList.add('active');
+
+          if (window.__shaderCtx) {
+            setShaderStyle(window.__shaderCtx, 'orbs');
+          } else {
+            try {
+              window.__shaderCtx = initShader(shaderCanvas, 'orbs');
+              setShaderIdle(window.__shaderCtx);
+            } catch (e) {
+              console.warn('Shader initialization failed:', e);
+            }
+          }
+        }
+
+        visualsOnlyMode = true;
+      } else {
+        // Exiting visuals-only mode - restore saved states
+        if (savedCodeState) {
+          codeSection.classList.remove('hidden');
+          codeBtn.classList.add('active');
+        }
+        if (savedGenerateState) {
+          generatePanel.classList.remove('hidden');
+          aiBtn.classList.add('active');
+        }
+        if (savedAlterState) {
+          alterSection.classList.remove('hidden');
+          alterToggleBtn.classList.add('active');
+        }
+        panelsVisible = savedCodeState || savedGenerateState || savedAlterState;
+
+        // Restore audio visualizers state
+        audioVizEnabled = savedAudioVizState;
+        audioVizBtn.classList.toggle('active', audioVizEnabled);
+        spectrumCanvas.classList.toggle('hidden', !audioVizEnabled);
+        scopeCanvas.classList.toggle('hidden', !audioVizEnabled);
+        pianorollCanvas.classList.toggle('hidden', !audioVizEnabled);
+
+        // Restore background viz style
+        if (savedVizStyle !== currentVizStyle) {
+          vizButtons.forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.viz === savedVizStyle);
+          });
+          currentVizStyle = savedVizStyle;
+          vizBtn.classList.toggle('active', savedVizStyle !== 'none');
+
+          if (savedVizStyle === 'none') {
+            if (window.__shaderCtx) {
+              cleanupShader(window.__shaderCtx);
+              window.__shaderCtx = undefined;
+              const gl = shaderCanvas.getContext('webgl2');
+              if (gl) {
+                gl.clearColor(0, 0, 0, 0);
+                gl.clear(gl.COLOR_BUFFER_BIT);
+              }
+            }
+          } else if (window.__shaderCtx) {
+            setShaderStyle(window.__shaderCtx, savedVizStyle);
+          }
+        }
+
+        visualsOnlyMode = false;
+      }
+    }
+
     // Handle bank dropdown change - update code and restart playback
     function handleBankChange() {
       const newBank = bankSelect.value;
@@ -1186,6 +1422,27 @@ stack(
       }
     });
 
+    // Info button and shortcuts popup
+    const infoBtn = document.getElementById('info-btn') as HTMLButtonElement;
+    const shortcutsPopup = document.getElementById('shortcuts-popup') as HTMLDivElement;
+    const shortcutsClose = document.getElementById('shortcuts-close') as HTMLButtonElement;
+
+    function toggleShortcutsPopup() {
+      shortcutsPopup.classList.toggle('hidden');
+    }
+
+    infoBtn.addEventListener('click', toggleShortcutsPopup);
+    shortcutsClose.addEventListener('click', toggleShortcutsPopup);
+
+    // Close popup when clicking outside
+    document.addEventListener('click', (e) => {
+      if (!shortcutsPopup.classList.contains('hidden') &&
+          !shortcutsPopup.contains(e.target as Node) &&
+          e.target !== infoBtn) {
+        shortcutsPopup.classList.add('hidden');
+      }
+    });
+
     // Keyboard shortcut: K to toggle play/pause
     document.addEventListener('keydown', (e) => {
       // Don't trigger if typing in an input field
@@ -1202,6 +1459,41 @@ stack(
       if (e.key === 'h' || e.key === 'H') {
         e.preventDefault();
         toggleAllPanels();
+      }
+
+      // V to toggle audio visualizers
+      if (e.key === 'v' || e.key === 'V') {
+        e.preventDefault();
+        toggleAudioVisualizers();
+      }
+
+      // B to toggle between "no vis" and "glowing orbs"
+      if (e.key === 'b' || e.key === 'B') {
+        e.preventDefault();
+        toggleBackgroundVis();
+      }
+
+      // A to toggle "visuals only" mode
+      if (e.key === 'a' || e.key === 'A') {
+        e.preventDefault();
+        toggleVisualsOnlyMode();
+      }
+
+      // < to select previous background effect
+      if (e.key === '<' || e.key === ',') {
+        e.preventDefault();
+        cycleBackgroundViz(-1);
+      }
+
+      // > to select next background effect
+      if (e.key === '>' || e.key === '.') {
+        e.preventDefault();
+        cycleBackgroundViz(1);
+      }
+
+      // Escape to close shortcuts popup
+      if (e.key === 'Escape') {
+        shortcutsPopup.classList.add('hidden');
       }
     });
 

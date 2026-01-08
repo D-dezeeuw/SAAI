@@ -1154,7 +1154,18 @@ button {
     font-size: 0.875rem;
     inset: unset;
     position: static;
-    background: transparent;
+    /* background: transparent; */
+    width: 99%;
+    height: 95%;
+    border-radius: 6px;
+    opacity:95%
+  }
+
+  #evolve-btn.active::before {
+    width: 800px;
+    height: 800px;
+    left: -70%;
+    top: -100%;
   }
 
   .shortcuts-popup,

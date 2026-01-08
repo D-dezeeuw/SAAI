@@ -262,8 +262,10 @@ src/
 - **Expanded Sample Library** - Additional support for samples, drum kits, and sound banks
 - **Pattern Templates** - Reusable snippets for specific drum patterns, synth presets, and common arrangements
 - **Shareable Creations** - Share your Strudel patterns via URL with code compressed into a hash
-- **Browser-Based API Keys** - Add your own OpenRouter API key directly in the browser and select from available models without server configuration
+- **Browser-Based API Keys** - Add your own OpenRouter API key directly in the browser
 - **Codebase Restructure** - Cleanup and reorganization for better maintainability and modularity
+- **Improved Auto mode** - Working towards a live music production set, with build up, bass drops etc
+- **Improve robustness** - More strudel validations across the app, to maintain stability.
 
 ## License
 

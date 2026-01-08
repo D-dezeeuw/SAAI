@@ -1,50 +1,41 @@
 import type { APIRoute } from 'astro';
-import { chat, DEFAULT_MODELS } from '../../lib/openrouter';
+import { chat } from '../../lib/openrouter';
 import { STAGE3_ALTER_PROMPT, buildStage3Prompt } from '../../lib/prompts';
+import {
+  getApiConfig,
+  validateApiKey,
+  parseJsonBody,
+  validateRequired,
+  cleanCodeResponse,
+  jsonResponse,
+  errorResponse,
+  formatError
+} from '../../lib/apiUtils';
+
+interface AlterRequestBody {
+  alterRequest: string;
+  currentCode: string;
+  enrichedContext?: string;
+  genreContext?: string;
+  bankName?: string;
+}
 
 export const POST: APIRoute = async ({ request }) => {
-  const apiKey = process.env.OPENROUTER_API_KEY || import.meta.env.OPENROUTER_API_KEY;
-  const modelCodegen = process.env.MODEL_CODEGEN || import.meta.env.MODEL_CODEGEN || DEFAULT_MODELS.CODEGEN;
+  const { apiKey, modelCodegen } = getApiConfig();
 
-  if (!apiKey) {
-    return new Response(
-      JSON.stringify({ error: 'OPENROUTER_API_KEY not configured' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    );
-  }
+  const apiKeyError = validateApiKey(apiKey);
+  if (apiKeyError) return apiKeyError;
 
-  let body: {
-    alterRequest: string;
-    currentCode: string;
-    enrichedContext?: string;
-    genreContext?: string;
-    bankName?: string;
-  };
+  const { body, error: parseError } = await parseJsonBody<AlterRequestBody>(request);
+  if (parseError) return parseError;
 
-  try {
-    body = await request.json();
-  } catch {
-    return new Response(
-      JSON.stringify({ error: 'Invalid JSON' }),
-      { status: 400, headers: { 'Content-Type': 'application/json' } }
-    );
-  }
+  const { alterRequest, currentCode, enrichedContext, genreContext, bankName } = body!;
 
-  const { alterRequest, currentCode, enrichedContext, genreContext, bankName } = body;
+  const alterRequestError = validateRequired(alterRequest, 'Alter request');
+  if (alterRequestError) return alterRequestError;
 
-  if (!alterRequest) {
-    return new Response(
-      JSON.stringify({ error: 'Alter request is required' }),
-      { status: 400, headers: { 'Content-Type': 'application/json' } }
-    );
-  }
-
-  if (!currentCode) {
-    return new Response(
-      JSON.stringify({ error: 'Current code is required' }),
-      { status: 400, headers: { 'Content-Type': 'application/json' } }
-    );
-  }
+  const currentCodeError = validateRequired(currentCode, 'Current code');
+  if (currentCodeError) return currentCodeError;
 
   try {
     const prompt = buildStage3Prompt(alterRequest, currentCode, enrichedContext, genreContext, bankName);
@@ -55,28 +46,18 @@ export const POST: APIRoute = async ({ request }) => {
       apiKey
     );
 
-    // Clean up the code (remove markdown code blocks if present)
-    const cleanCode = response.content
-      .replace(/^```(?:javascript|js|strudel)?\n?/gm, '')
-      .replace(/```$/gm, '')
-      .trim();
+    const cleanCode = cleanCodeResponse(response.content);
 
-    return new Response(
-      JSON.stringify({
-        code: cleanCode,
-        usage: {
-          promptTokens: response.usage.promptTokens,
-          completionTokens: response.usage.completionTokens
-        }
-      }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
-    );
+    return jsonResponse({
+      code: cleanCode,
+      usage: {
+        promptTokens: response.usage.promptTokens,
+        completionTokens: response.usage.completionTokens
+      }
+    });
 
   } catch (error) {
     console.error('Alter error:', error);
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    );
+    return errorResponse(formatError(error), 500);
   }
 };

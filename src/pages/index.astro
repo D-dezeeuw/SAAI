@@ -858,6 +858,11 @@ import Layout from '../layouts/Layout.astro';
         return;
       }
 
+      // Stop any currently playing song before generating new code
+      if (isPlaying || isPaused) {
+        stopCode();
+      }
+
       generateBtn.disabled = true;
       contextDisplay.textContent = 'Generating context...';
       contextDisplay.className = 'loading';

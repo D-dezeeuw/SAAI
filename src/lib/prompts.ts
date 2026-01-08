@@ -1,3 +1,7 @@
+// =============================================================================
+// SYSTEM PROMPTS
+// =============================================================================
+
 export const STAGE1_SYSTEM_PROMPT = `You are a music producer assistant that transforms casual user requests into detailed Strudel live-coding prompts.
 
 Your job is to take a user's informal music request and expand it into a detailed, technical prompt with proper music production considerations.
@@ -25,10 +29,16 @@ Transform the request into a detailed prompt that specifies:
 2. Exact drum placement (e.g., "kick on steps 1 and 5 of 8")
 3. Groove requirements (swing amount, velocity variation)
 4. Rhythmic movement for melodic elements (not static pads unless ambient)
-5. Bass pattern that locks with kick but adds syncopation
+5. Bass pattern that locks with kick but add syncopation
 6. Effects with approximate values
+7. Chord progression length (ALWAYS 4 or 8 chords for seamless looping)
+8. Dynamic variation (suggest using probability, random choice, or pattern transforms for interest)
 
-CRITICAL: Specify that ALL patterns must use the same step count to stay in sync.
+CRITICAL LOOPING RULES:
+- ALL patterns must use the same step count to stay in sync
+- Chord progressions MUST have 4 or 8 chords (powers of 2) - NEVER 3, 5, 6, or 7
+- If specifying chord changes, always use 4-chord or 8-chord progressions
+- Example: "4-bar progression: Cm - Fm - Ab - Bb" (4 chords = 4 cycles)
 
 Be specific and production-focused. Output only the enriched prompt.`;
 
@@ -83,8 +93,20 @@ Examples:
 - note("c3:maj7") - C major 7th
 - note("<c3:min7 f3:dom7 g3:maj7>") - chord progression
 
-## CRITICAL: Proper Looping
-Ensure all patterns loop seamlessly - the pattern should sound continuous when it repeats.
+## CRITICAL: Seamless Looping
+ALL patterns MUST have matching cycle lengths to loop seamlessly:
+
+1. **Alternations (<>) must have EQUAL elements** - If chords use <a b c d> (4 elements), ALL other alternations must also have 4 elements
+2. **Use powers of 2** - Prefer 2, 4, or 8 elements in alternations (NOT 3, 5, 6, 7)
+3. **Match pattern structures** - If bass uses <note1 note2 note3 note4>, chords must also use 4 alternations
+
+WRONG - Mismatched lengths cause jarring restarts:
+note("<c3 f3 g3>")  // 3 cycles - BAD!
+s("bd sd bd sd")    // 1 cycle - doesn't match!
+
+CORRECT - Matching lengths for seamless loop:
+note("<c3 f3 g3 c3>")  // 4 cycles
+note("<[c2 ~ c2 ~] [f2 ~ f2 ~] [g2 ~ g2 ~] [c2 ~ c2 ~]>")  // 4 cycles - matches!
 
 ## Tempo Control - CRITICAL
 - setcps(0.5) - sets cycles per second (default is 0.5 = 120 BPM in 4/4)
@@ -100,14 +122,27 @@ stack(...)
 - DO NOT use setbpm() - it doesn't exist!
 
 ## Effects
-.gain(0.8) - volume (0-1)
-.room(0.5) - reverb size
-.delay(0.25) - delay amount
-.delayfb(0.3) - delay feedback
-.lpf(800) - low-pass filter (hz)
-.hpf(200) - high-pass filter (hz)
-.speed(1.5) - playback speed
-.swing(0.2) - swing feel (0-0.5)
+Only use effects from this list: [gain, room, size, delay, delaytime, delayfb, lpf, hpf, resonance, speed, swing, pan, shape, attack, decay, sustain, release]
+
+| Effect | Range | Description |
+|--------|-------|-------------|
+| .gain(0.8) | 0-1 | Volume level |
+| .room(0.5) | 0-1 | Reverb amount |
+| .size(0.8) | 0-1 | Reverb size |
+| .delay(0.25) | 0-1 | Delay mix |
+| .delaytime(0.125) | 0-1 | Delay time |
+| .delayfb(0.3) | 0-0.9 | Delay feedback |
+| .lpf(800) | 100-10000 | Low-pass filter (hz) |
+| .hpf(200) | 20-2000 | High-pass filter (hz) |
+| .resonance(5) | 0-20 | Filter resonance |
+| .speed(1.5) | 0.5-2 | Playback speed |
+| .swing(0.2) | 0-0.5 | Swing feel |
+| .pan(0.3) | -1 to 1 | Stereo position |
+| .shape(0.3) | 0-1 | Distortion |
+| .attack(0.1) | 0-1 | Envelope attack |
+| .decay(0.2) | 0-1 | Envelope decay |
+| .sustain(0.5) | 0-1 | Envelope sustain |
+| .release(0.3) | 0-2 | Envelope release |
 
 ## Modulation / LFOs (for dynamic parameter changes)
 Use oscillator signals with .range() and .slow():
@@ -162,12 +197,57 @@ stack(
 
 REMEMBER: Synths (sawtooth, sine, square, triangle, supersaw, supersquare) are WebAudio oscillators, NOT samples. Never apply .bank() to patterns that use synths!
 
-## Probability / Randomness
-- .degradeBy(0.5) - randomly drop 50% of events
-- .sometimesBy(0.3, x => x.gain(0.5)) - 30% chance to apply effect
-- .rarely(x => x.speed(2)) - rarely apply transformation
-- .often(x => x.delay(0.5)) - often apply transformation
-- WRONG: .probalize(), .probability(), .random() - these don't exist!
+## Dynamic Patterns - Making Each Cycle Different
+
+### Mini-Notation Randomization
+Use these INSIDE the pattern string:
+- ? - probability (50% by default): s("bd sd? hh cp?0.3") - sd has 50% chance, cp has 30% chance
+- | - random choice: s("bd [sd | cp | rim] hh") - randomly picks one each cycle
+
+### Random Selection Functions
+- choose("a", "b", "c") - randomly picks one element each event
+- wchoose([["a", 5], ["b", 2], ["c", 1]]) - weighted random (a is 5x more likely than c)
+- chooseCycles("a", "b", "c") - picks one element per CYCLE (not per event)
+
+Examples:
+note(choose("c3", "e3", "g3")).s("piano")
+note(chooseCycles("c3", "e3", "g3", "b3")).s("piano")
+
+### Degradation - Randomly Remove Events
+- .degrade() - removes 50% of events randomly
+- .degradeBy(0.3) - removes 30% of events
+- .undegradeBy(0.3) - inverse, keeps 30% chance of silence
+
+Example: s("hh*16").degradeBy(0.2) - hi-hats with random gaps
+
+### Probability Modifiers - Apply Effects Randomly
+| Function | Probability | Example |
+|----------|-------------|---------|
+| .sometimes(fn) | 50% | .sometimes(x => x.speed(2)) |
+| .sometimesBy(0.3, fn) | 30% | .sometimesBy(0.3, x => x.gain(0.5)) |
+| .often(fn) | 75% | .often(x => x.delay(0.3)) |
+| .rarely(fn) | 25% | .rarely(x => x.room(0.8)) |
+| .almostAlways(fn) | 90% | .almostAlways(x => x.lpf(800)) |
+| .almostNever(fn) | 10% | .almostNever(x => x.speed(-1)) |
+| .someCycles(fn) | 50% per cycle | .someCycles(x => x.rev()) |
+
+### Pattern Transformations
+- .rev() - reverse the pattern
+- .jux(fn) - apply fn to right channel only: .jux(rev) splits stereo with reversed right
+- .add(n) - add to note values: n("0 2 4").add("<0 7>") - transposes by octave every other cycle
+- .ply(n) - repeat each event n times: s("bd sd").ply(2) = s("bd bd sd sd")
+- .off(time, fn) - copy pattern, shift in time, apply fn: .off(1/8, x => x.add(7))
+
+### Euclidean Rhythms
+Distribute beats evenly across steps: (beats, steps, offset)
+- s("bd(3,8)") - 3 beats across 8 steps = "bd ~ ~ bd ~ ~ bd ~"
+- s("hh(5,8)") - 5 beats across 8 steps
+- s("cp(3,8,2)") - 3 beats, 8 steps, offset by 2
+
+### Scale Degrees for Melodic Variation
+Use n() with scale() for easy transposition:
+- n("0 2 4 6").scale("C:minor") - plays scale degrees
+- n("<0 1 2 3>").add("<0 7>").scale("C:minor") - varies by octave each cycle
 
 ## Interactive Controls (Sliders)
 - slider(value, min?, max?, step?) - creates an inline slider control
@@ -177,28 +257,25 @@ REMEMBER: Synths (sawtooth, sine, square, triangle, supersaw, supersquare) are W
 - Use sparingly - one or two sliders per pattern for key parameters
 
 ## Important Rules
-- ALWAYS wrap sample patterns with s() or sound()
-- NEVER output raw strings - always use s("...")
-- Ensure patterns loop seamlessly - the pattern should sound continuous when it repeats
+- Wrap sample patterns with s() or sound()
 - Use sample:variant syntax (bd:4) not .sound() chain
-- Use stack() to layer patterns, NOT $: syntax
-- Do NOT call .play() - system handles it
-- ONLY use functions that exist: sine, saw, tri, rand for modulation
-- NEVER use non-existent functions like line(), ramp(), env(), envelope(), probalize(), repeat()
-- For repetition use mini-notation *n syntax (e.g., "bd*4") or .fast()/.slow(), NOT .repeat()
-- setcps() goes BEFORE the pattern on its own line, NEVER chained!
-- Output ONLY valid Strudel code, no markdown or explanations`;
+- Use stack() to layer multiple patterns
+- For modulation use only: [sine, saw, tri, rand] with .range() and .slow()
+- For repetition use mini-notation *n syntax (e.g., "bd*4") or .fast()/.slow()
+- setcps() goes BEFORE the pattern on its own line, never chained
+- Output ONLY valid Strudel code, no markdown or explanations
 
-export function buildStage1Prompt(userMessage: string, currentCode: string): string {
-  return `Current code:
-\`\`\`
-${currentCode || '// No existing code'}
-\`\`\`
+## SEAMLESS LOOPING - MOST IMPORTANT
+- ALL alternations (<>) MUST have 4 or 8 elements - NEVER 3, 5, 6, or 7
+- If one pattern uses <a b c d> (4 elements), ALL patterns with <> must use 4 elements
+- Drums can loop every cycle, but melodic patterns using <> must align
+- BAD: note("<c3 f3 g3>") - 3 elements creates jarring restart every 3 cycles
+- GOOD: note("<c3 f3 g3 c3>") - 4 elements for smooth 4-cycle loop
 
-User request: "${userMessage}"
-
-Transform this into a detailed Strudel prompt.`;
-}
+## Avoid Empty Patterns
+- NEVER create empty note patterns: note("").s("synth") will crash
+- NEVER use note() without actual notes inside
+- Every note() call MUST have at least one note: note("c3").s("sawtooth")`;
 
 export const STAGE3_ALTER_PROMPT = `You are a Strudel code editor that makes PRECISE, MINIMAL adjustments to existing code.
 
@@ -236,31 +313,16 @@ You receive working Strudel code and a user request to modify it. Make ONLY the 
 - For repetition use *n syntax (e.g., "bd*4") or .fast()/.slow(), NOT .repeat()
 - Don't invent functions like probalize, setbpm, repeat, button, input, etc.
 
+## Preserve Seamless Looping
+- If existing code uses <> alternations, maintain the same number of elements
+- All alternations must have matching element counts (4 or 8 preferred)
+- Don't change a 4-element alternation to 3 or 5 elements
+
 ## Bank Structure
 If the code uses .bank(), it should ONLY be on drum patterns in an inner stack:
 - Keep drums in inner stack with .bank()
 - Keep synths (sawtooth, sine, etc.) OUTSIDE the banked stack
 - Never apply .bank() to synth patterns`;
-
-export function buildStage3Prompt(alterRequest: string, currentCode: string, enrichedContext?: string, genreContext?: string, bankName?: string): string {
-  let prompt = `## Current Strudel Code:\n\`\`\`\n${currentCode}\n\`\`\`\n\n`;
-
-  if (enrichedContext) {
-    prompt += `## Original Context:\n${enrichedContext}\n\n`;
-  }
-
-  if (genreContext) {
-    prompt += `## Genre Reference:\n${genreContext}\n\n`;
-  }
-
-  if (bankName) {
-    prompt += `## Drum Bank\nKeep the .bank("${bankName}") on the inner drum stack. Remember: drums use .bank(), synths do NOT.\n\n`;
-  }
-
-  prompt += `## User Request:\n${alterRequest}\n\nModify the code to fulfill this request. Output ONLY the modified code.`;
-
-  return prompt;
-}
 
 export const EVOLUTION_PROMPT = `You are a Strudel code evolver that makes SUBTLE, CREATIVE changes to evolve music over time.
 
@@ -269,14 +331,22 @@ You receive working Strudel code and should make a SMALL, INTERESTING evolution 
 
 ## Evolution Ideas (pick ONE small change)
 - Slightly adjust a filter frequency or add filter modulation
-- Add or remove an effect (reverb, delay, chorus)
+- Add or remove an effect (room, delay, lpf, hpf)
 - Change velocity/gain patterns for dynamics
 - Add or remove one element (a percussion hit, a note)
-- Shift a note pattern slightly (transpose, invert)
+- Shift a note pattern slightly (transpose with .add())
 - Change a rhythm subdivision (* or / values)
-- Add probability/randomness with degradeBy or sometimesBy
 - Adjust swing amount
 - Change modulation speed (.slow() values)
+
+### Dynamic Pattern Techniques (great for evolution!)
+- Add ? for probability: change "hh*8" to "hh*8?" for random gaps
+- Add | for random choice: change "sd" to "[sd | cp | rim]"
+- Use .degradeBy(0.2) on hi-hats or percussion for texture
+- Add .sometimes(x => x.gain(0.5)) for dynamic variation
+- Use .jux(rev) for stereo width
+- Add .off(1/16, x => x.add(7)) for echo-like harmonies
+- Change fixed notes to chooseCycles() for variety
 
 ## Rules
 1. Make only ONE small change per evolution
@@ -295,39 +365,30 @@ You receive working Strudel code and should make a SMALL, INTERESTING evolution 
 - setcps() is standalone, NEVER chained
 - Chords use COLON: note("c3:maj7") - NOT apostrophe note("c3'maj7")!
 - Don't invent non-existent functions
-- If code uses .bank(), keep it on the inner drum stack only (not on synths)`;
+- If code uses .bank(), keep it on the inner drum stack only (not on synths)
+- PRESERVE alternation counts: if code has <a b c d> (4 elements), keep 4 elements
+- Never change alternation length from 4 to 3 or 5 - this breaks seamless looping`;
 
-export function buildEvolutionPrompt(currentCode: string, enrichedContext?: string, genreContext?: string, bankName?: string): string {
-  let prompt = `## Current Strudel Code:\n\`\`\`\n${currentCode}\n\`\`\`\n\n`;
+// =============================================================================
+// CONTEXT OPTIONS
+// =============================================================================
 
-  if (enrichedContext) {
-    prompt += `## Original Musical Intent:\n${enrichedContext}\n\n`;
-  }
-
-  if (genreContext) {
-    prompt += `## Genre Reference:\n${genreContext}\n\n`;
-  }
-
-  if (bankName) {
-    prompt += `## Drum Bank\nKeep the .bank("${bankName}") on the inner drum stack. Do NOT apply bank to synth patterns.\n\n`;
-  }
-
-  prompt += `Evolve this code with ONE small, subtle change that keeps the music interesting. Output ONLY the modified code.`;
-
-  return prompt;
+export interface ContextOptions {
+  enrichedContext?: string;
+  genreContext?: string;
+  bankName?: string;
 }
 
-export function buildStage2Prompt(enrichedPrompt: string, currentCode: string, genreContext?: string, bankName?: string): string {
-  let prompt = '';
+// =============================================================================
+// SHARED HELPERS
+// =============================================================================
 
-  // Add genre-specific reference if provided
-  if (genreContext) {
-    prompt += `## Genre Reference (use these patterns and techniques):\n${genreContext}\n\n`;
-  }
-
-  // Add bank instruction if provided
-  if (bankName) {
-    prompt += `## Drum Bank
+/**
+ * Build bank instruction section for prompts
+ */
+function buildBankInstruction(bankName: string, detailed: boolean = false): string {
+  if (detailed) {
+    return `## Drum Bank
 IMPORTANT: Group all drum patterns (s("bd"), s("hh"), s("sd"), s("cp"), s("oh"), etc.) in an INNER stack() and add .bank("${bankName}") to that inner stack ONLY.
 Synth patterns (note().s("sawtooth"), note().s("sine"), etc.) must stay OUTSIDE the banked stack.
 
@@ -343,13 +404,85 @@ stack(
 
 `;
   }
+  return `## Drum Bank\nKeep the .bank("${bankName}") on the inner drum stack. Do NOT apply bank to synth patterns.\n\n`;
+}
 
-  // Add current code context if provided
+/**
+ * Build context sections that are common across prompt builders
+ */
+function buildContextSections(options: ContextOptions, bankDetailed: boolean = false): string {
+  let sections = '';
+
+  if (options.genreContext) {
+    sections += `## Genre Reference:\n${options.genreContext}\n\n`;
+  }
+
+  if (options.bankName) {
+    sections += buildBankInstruction(options.bankName, bankDetailed);
+  }
+
+  if (options.enrichedContext) {
+    sections += `## Original Context:\n${options.enrichedContext}\n\n`;
+  }
+
+  return sections;
+}
+
+// =============================================================================
+// PROMPT BUILDERS
+// =============================================================================
+
+export function buildStage1Prompt(userMessage: string, currentCode: string): string {
+  return `Current code:
+\`\`\`
+${currentCode || '// No existing code'}
+\`\`\`
+
+User request: "${userMessage}"
+
+Transform this into a detailed Strudel prompt.`;
+}
+
+export function buildStage2Prompt(
+  enrichedPrompt: string,
+  currentCode: string,
+  genreContext?: string,
+  bankName?: string
+): string {
+  let prompt = buildContextSections({ genreContext, bankName }, true);
+
   if (currentCode) {
     prompt += `Current code to modify or build upon:\n\`\`\`\n${currentCode}\n\`\`\`\n\n`;
   }
 
   prompt += `Task: ${enrichedPrompt}\n\nGenerate valid Strudel code following the genre reference patterns above. Output ONLY the code, no explanations or markdown.`;
+
+  return prompt;
+}
+
+export function buildStage3Prompt(
+  alterRequest: string,
+  currentCode: string,
+  enrichedContext?: string,
+  genreContext?: string,
+  bankName?: string
+): string {
+  let prompt = `## Current Strudel Code:\n\`\`\`\n${currentCode}\n\`\`\`\n\n`;
+  prompt += buildContextSections({ enrichedContext, genreContext, bankName });
+  prompt += `## User Request:\n${alterRequest}\n\nModify the code to fulfill this request. Output ONLY the modified code.`;
+
+  return prompt;
+}
+
+export function buildEvolutionPrompt(
+  currentCode: string,
+  enrichedContext?: string,
+  genreContext?: string,
+  bankName?: string
+): string {
+  let prompt = `## Current Strudel Code:\n\`\`\`\n${currentCode}\n\`\`\`\n\n`;
+  prompt += buildContextSections({ enrichedContext, genreContext, bankName });
+  prompt += `Evolve this code with ONE small, subtle change that keeps the music interesting. Output ONLY the modified code.`;
 
   return prompt;
 }

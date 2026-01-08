@@ -1,42 +1,40 @@
 import type { APIRoute } from 'astro';
-import { chat, DEFAULT_MODELS } from '../../lib/openrouter';
+import { chat } from '../../lib/openrouter';
 import {
   STAGE1_SYSTEM_PROMPT,
   STAGE2_SYSTEM_PROMPT,
   buildStage1Prompt,
   buildStage2Prompt
 } from '../../lib/prompts';
+import {
+  getApiConfig,
+  validateApiKey,
+  parseJsonBody,
+  validateRequired,
+  cleanCodeResponse,
+  formatError
+} from '../../lib/apiUtils';
+
+interface GenerateRequestBody {
+  message: string;
+  currentCode: string;
+  genreContext?: string;
+  bankName?: string;
+}
 
 export const POST: APIRoute = async ({ request }) => {
-  const apiKey = process.env.OPENROUTER_API_KEY || import.meta.env.OPENROUTER_API_KEY;
-  const modelContext = process.env.MODEL_CONTEXT || import.meta.env.MODEL_CONTEXT || DEFAULT_MODELS.CONTEXT;
-  const modelCodegen = process.env.MODEL_CODEGEN || import.meta.env.MODEL_CODEGEN || DEFAULT_MODELS.CODEGEN;
+  const { apiKey, modelContext, modelCodegen } = getApiConfig();
 
-  if (!apiKey) {
-    return new Response(
-      JSON.stringify({ error: 'OPENROUTER_API_KEY not configured' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    );
-  }
+  const apiKeyError = validateApiKey(apiKey);
+  if (apiKeyError) return apiKeyError;
 
-  let body: { message: string; currentCode: string; genreContext?: string; bankName?: string };
-  try {
-    body = await request.json();
-  } catch {
-    return new Response(
-      JSON.stringify({ error: 'Invalid JSON' }),
-      { status: 400, headers: { 'Content-Type': 'application/json' } }
-    );
-  }
+  const { body, error: parseError } = await parseJsonBody<GenerateRequestBody>(request);
+  if (parseError) return parseError;
 
-  const { message, currentCode, genreContext, bankName } = body;
+  const { message, currentCode, genreContext, bankName } = body!;
 
-  if (!message) {
-    return new Response(
-      JSON.stringify({ error: 'Message is required' }),
-      { status: 400, headers: { 'Content-Type': 'application/json' } }
-    );
-  }
+  const messageError = validateRequired(message, 'Message');
+  if (messageError) return messageError;
 
   // Create a streaming response using SSE
   const stream = new ReadableStream({
@@ -77,11 +75,7 @@ export const POST: APIRoute = async ({ request }) => {
         totalPromptTokens += stage2Response.usage.promptTokens;
         totalCompletionTokens += stage2Response.usage.completionTokens;
 
-        // Clean up the code (remove markdown code blocks if present)
-        const cleanCode = stage2Response.content
-          .replace(/^```(?:javascript|js|strudel)?\n?/gm, '')
-          .replace(/```$/gm, '')
-          .trim();
+        const cleanCode = cleanCodeResponse(stage2Response.content);
 
         send('stage2', { code: cleanCode });
         send('done', {
@@ -93,7 +87,7 @@ export const POST: APIRoute = async ({ request }) => {
 
       } catch (error) {
         console.error('Generation error:', error);
-        send('error', { error: error instanceof Error ? error.message : 'Unknown error' });
+        send('error', { error: formatError(error) });
       } finally {
         controller.close();
       }

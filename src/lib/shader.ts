@@ -2,6 +2,16 @@
 // Architecture: O(particles) instead of O(pixels × particles)
 
 import { CONFIG } from './configuration';
+import {
+  interpolateColor,
+  randomInRange,
+  getSizeForStyle,
+  getAlphaForStyle,
+  createProgram,
+  smoothstep,
+  getTrailDirection,
+  wrapPosition,
+} from './shaderUtils';
 
 export interface AudioData {
   intensity: number;    // 0-1, overall activity
@@ -80,12 +90,6 @@ export interface ShaderContext {
 // Shorthand color references from config
 const CYAN = CONFIG.colors.cyan;
 const PINK = CONFIG.colors.pink;
-
-// Smoothstep interpolation for smooth direction transitions
-function smoothstep(t: number): number {
-  t = Math.max(0, Math.min(1, t));
-  return t * t * (3 - 2 * t);
-}
 
 // Vertex shader for point sprites
 const VERTEX_SHADER = `#version 300 es
@@ -221,67 +225,9 @@ void main() {
   fragColor = texture(u_texture, v_texCoord);
 }`;
 
-// Compile shader
-function compileShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
-  const shader = gl.createShader(type);
-  if (!shader) throw new Error('Failed to create shader');
-
-  gl.shaderSource(shader, source);
-  gl.compileShader(shader);
-
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    const info = gl.getShaderInfoLog(shader);
-    gl.deleteShader(shader);
-    throw new Error('Shader compile error: ' + info);
-  }
-
-  return shader;
-}
-
-// Create program
-function createProgram(gl: WebGL2RenderingContext, fragmentSource: string): WebGLProgram {
-  const vertexShader = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER);
-  const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, fragmentSource);
-
-  const program = gl.createProgram();
-  if (!program) throw new Error('Failed to create program');
-
-  gl.attachShader(program, vertexShader);
-  gl.attachShader(program, fragmentShader);
-  gl.linkProgram(program);
-
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    const info = gl.getProgramInfoLog(program);
-    throw new Error('Program link error: ' + info);
-  }
-
-  gl.deleteShader(vertexShader);
-  gl.deleteShader(fragmentShader);
-
-  return program;
-}
-
-// Create program with custom vertex shader
-function createProgramWithVertex(gl: WebGL2RenderingContext, vertexSource: string, fragmentSource: string): WebGLProgram {
-  const vertexShader = compileShader(gl, gl.VERTEX_SHADER, vertexSource);
-  const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, fragmentSource);
-
-  const program = gl.createProgram();
-  if (!program) throw new Error('Failed to create program');
-
-  gl.attachShader(program, vertexShader);
-  gl.attachShader(program, fragmentShader);
-  gl.linkProgram(program);
-
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    const info = gl.getProgramInfoLog(program);
-    throw new Error('Program link error: ' + info);
-  }
-
-  gl.deleteShader(vertexShader);
-  gl.deleteShader(fragmentShader);
-
-  return program;
+// Helper to create program with default vertex shader
+function createParticleProgram(gl: WebGL2RenderingContext, fragmentSource: string): WebGLProgram {
+  return createProgram(gl, VERTEX_SHADER, fragmentSource);
 }
 
 // Create trail framebuffers for ping-pong technique
@@ -341,14 +287,14 @@ function createQuadResources(gl: WebGL2RenderingContext): QuadResources {
   gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW);
 
   // Create fade program
-  const fadeProgram = createProgramWithVertex(gl, QUAD_VERTEX, FADE_FRAGMENT);
+  const fadeProgram = createProgram(gl, QUAD_VERTEX, FADE_FRAGMENT);
   const fadeUniforms = {
     u_texture: gl.getUniformLocation(fadeProgram, 'u_texture'),
     u_fade: gl.getUniformLocation(fadeProgram, 'u_fade'),
   };
 
   // Create composite program
-  const compositeProgram = createProgramWithVertex(gl, QUAD_VERTEX, COMPOSITE_FRAGMENT);
+  const compositeProgram = createProgram(gl, QUAD_VERTEX, COMPOSITE_FRAGMENT);
   const compositeUniforms = {
     u_texture: gl.getUniformLocation(compositeProgram, 'u_texture'),
   };
@@ -411,36 +357,13 @@ function createParticles(style: string, width: number, height: number): Particle
     }
 
     // Size based on style - scaled by screen size for smaller screens
-    let baseSize: number;
-    if (style === 'orbs') {
-      const cfg = CONFIG.orbs;
-      baseSize = (cfg.sizeMin + Math.random() * (cfg.sizeMax - cfg.sizeMin)) * sizeScale;
-    } else if (style === 'stars') {
-      const cfg = CONFIG.stars;
-      baseSize = (cfg.sizeMin + Math.random() * (cfg.sizeMax - cfg.sizeMin)) * sizeScale;
-    } else { // trails
-      const cfg = CONFIG.trails;
-      baseSize = (cfg.sizeMin + Math.random() * (cfg.sizeMax - cfg.sizeMin)) * sizeScale;
-    }
+    const baseSize = getSizeForStyle(style, sizeScale);
 
     // Color interpolation between cyan and pink
-    const colorT = Math.random();
-    const r = CYAN.r + (PINK.r - CYAN.r) * colorT;
-    const g = CYAN.g + (PINK.g - CYAN.g) * colorT;
-    const b = CYAN.b + (PINK.b - CYAN.b) * colorT;
+    const { r, g, b } = interpolateColor(Math.random());
 
     // Alpha values from config
-    let alpha: number;
-    if (style === 'stars') {
-      const cfg = CONFIG.stars;
-      alpha = cfg.alphaMin + Math.random() * (cfg.alphaMax - cfg.alphaMin);
-    } else if (style === 'orbs') {
-      const cfg = CONFIG.orbs;
-      alpha = cfg.alphaMin + Math.random() * (cfg.alphaMax - cfg.alphaMin);
-    } else {
-      const cfg = CONFIG.trails;
-      alpha = cfg.alphaMin + Math.random() * (cfg.alphaMax - cfg.alphaMin);
-    }
+    const alpha = getAlphaForStyle(style);
 
     // Twinkle speed from config
     const twinkleSpeed = CONFIG.stars.twinkleSpeedMin +
@@ -478,13 +401,10 @@ function createParticles(style: string, width: number, height: number): Particle
       const y = Math.random() * height;
       const vx = (Math.random() - 0.5) * 0.2; // Slower movement
       const vy = -0.1 - Math.random() * 0.2;  // Gentle upward drift
-      const baseSize = (cfg.largeSizeMin + Math.random() * (cfg.largeSizeMax - cfg.largeSizeMin)) * sizeScale;
+      const baseSize = randomInRange(cfg.largeSizeMin, cfg.largeSizeMax) * sizeScale;
 
       // Color interpolation
-      const colorT = Math.random();
-      const r = CYAN.r + (PINK.r - CYAN.r) * colorT;
-      const g = CYAN.g + (PINK.g - CYAN.g) * colorT;
-      const b = CYAN.b + (PINK.b - CYAN.b) * colorT;
+      const { r, g, b } = interpolateColor(Math.random());
 
       particles.push({
         x, y, vx, vy,
@@ -521,9 +441,9 @@ export function initShader(canvas: HTMLCanvasElement, style: string): ShaderCont
 
   // Create all programs
   const programs: Record<string, WebGLProgram> = {
-    orbs: createProgram(gl, ORBS_FRAGMENT),
-    stars: createProgram(gl, STARS_FRAGMENT),
-    trails: createProgram(gl, TRAILS_FRAGMENT),
+    orbs: createParticleProgram(gl, ORBS_FRAGMENT),
+    stars: createParticleProgram(gl, STARS_FRAGMENT),
+    trails: createParticleProgram(gl, TRAILS_FRAGMENT),
   };
 
   // Create particles
@@ -868,9 +788,10 @@ export function updateShader(ctx: ShaderContext, audio: AudioData): void {
     const colorShift = audio.treble * react.trebleColorShift;
     const baseColorT = (Math.sin(p.phase) * 0.5 + 0.5);
     const colorT = Math.min(1, baseColorT + colorShift);
-    p.r = CYAN.r + (PINK.r - CYAN.r) * colorT;
-    p.g = CYAN.g + (PINK.g - CYAN.g) * colorT;
-    p.b = CYAN.b + (PINK.b - CYAN.b) * colorT;
+    const { r, g, b } = interpolateColor(colorT);
+    p.r = r;
+    p.g = g;
+    p.b = b;
   }
 
   // Upload updated data to GPU

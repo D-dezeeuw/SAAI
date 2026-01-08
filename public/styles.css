@@ -221,7 +221,8 @@ button {
 #code-btn,
 #alter-toggle-btn,
 #play-btn,
-#stop-btn {
+#stop-btn,
+#share-btn {
   width: 32px;
   height: 32px;
   border-radius: 50%;
@@ -294,6 +295,24 @@ button {
 
 #stop-btn:hover {
   background: rgba(255, 255, 255, 0.1);
+}
+
+#share-btn {
+  background: #6b7280;
+  color: #fff;
+}
+
+#share-btn:hover {
+  background: #4b5563;
+}
+
+#share-btn:active {
+  background: #22c55e;
+}
+
+#share-btn svg {
+  width: 14px;
+  height: 14px;
 }
 
 /* Full-page visualization background */

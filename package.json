@@ -8,6 +8,7 @@
     "preview": "astro preview"
   },
   "dependencies": {
+    "pako": "^2.1.0",
     "@astrojs/node": "^9.5.1",
     "@codemirror/commands": "^6.10.1",
     "@codemirror/lang-javascript": "^6.2.4",

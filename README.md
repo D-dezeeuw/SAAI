@@ -7,6 +7,7 @@ A generative AI-powered music creation tool built on top of [Strudel](https://st
 - **AI-Powered Music Generation** - Describe music in plain English, get playable Strudel code
 - **Multi-Stage AI Pipeline** - Prompt enhancement, code generation, and code alteration stages
 - **Live Code Evolution** - Let AI subtly evolve your music over time
+- **Shareable Creations** - Share your patterns via URL with compressed code
 - **Token Usage Tracking** - Monitor API usage with real-time cost estimates
 - **Multiple Visualizers** - Real-time audio-reactive visualizations
 - **Genre Templates** - Pre-configured patterns for EDM, Drum & Bass, Hip-Hop, Acid, Jazz
@@ -86,6 +87,24 @@ SAAI is fully responsive and works on mobile devices:
 - **Optimized performance** - Background effects and scope/spectrum visualizers are disabled on mobile to save battery and CPU
 - **Touch-friendly** - Larger buttons and stacked layouts for easier interaction
 - **Piano roll only** - On mobile, only the lightweight piano roll visualizer runs
+
+## Sharing Creations
+
+Share your Strudel patterns with anyone via URL. The code is compressed into a URL-safe hash that can be shared and loaded instantly.
+
+**To share:**
+1. Create or generate a pattern in the editor
+2. Click the share button (upload icon) in the header
+3. The share link is copied to your clipboard
+4. Share the URL with anyone
+
+**To load a shared pattern:**
+Simply open the shared URL - the code loads automatically into the editor.
+
+**Example:** Try this shared pattern:
+```
+http://localhost:4321/?c=eNqFk91ugyAUx-_7FCdewdJZUHSuWfYCy55g6QUqtU07MELT7GbPvoOK033GAAc453B-_NEqV7WWcJFtcrYRdLWyTlYnsgKYDDRJVNbb7EZENG7kURMeJ3Qdtt6hYIU5wC9jiIk4sPgO270fo8_4Q3XD88nrhcUCHRJsaeaNXX9sZ8wrYctjh69qt8lghhwsLqaAlKI_jUupTyR6Ml3zzIejtXGKRIr3Z_c5Y1nXZFhmwIBjCRAMTG3P5koSOvpiAVZenTHuEMKn-j1oPsLmffmDw7ndE3vUKu6kbhQRjK0hzRgbcxchd6es0VJXiiTZuFSrSr4hDk_Q-YLSeMxQykG2KqDi3HTl0RE-p0xhn0KTgkyhTKESUE9FWdddKterAxyGHls047y0qkPYBSeqNJXmLlp5cPDot9jtFsTyOgJz5okROBAL-hXvO12tzv2WoIO5L3ESrqWVen6j-D7W0Ku_FGu4kWR2Iw-KP0b_SDlP7NOKMS3P6c-Cco9X_KUnD1TS9X8X8nbqrKTFrUWtqOXsMX8A7efotg
+```
 
 ## Browser Requirements
 
@@ -246,6 +265,7 @@ src/
 │   ├── shader.ts         # WebGL particle system
 │   ├── configuration.ts  # Visual effect settings
 │   ├── appConfig.ts      # Application defaults
+│   ├── urlShare.ts       # URL-based code sharing
 │   ├── customScope.ts    # Waveform visualizer
 │   └── customSpectrum.ts # Spectrum visualizer
 └── layouts/
@@ -261,7 +281,6 @@ src/
 - **Extended Visualizations** - More visualization options and [Hydra](https://hydra.ojack.xyz/) integration for live visuals
 - **Expanded Sample Library** - Additional support for samples, drum kits, and sound banks
 - **Pattern Templates** - Reusable snippets for specific drum patterns, synth presets, and common arrangements
-- **Shareable Creations** - Share your Strudel patterns via URL with code compressed into a hash
 - **Browser-Based API Keys** - Add your own OpenRouter API key directly in the browser
 - **Codebase Restructure** - Cleanup and reorganization for better maintainability and modularity
 - **Improved Auto mode** - Working towards a live music production set, with build up, bass drops etc

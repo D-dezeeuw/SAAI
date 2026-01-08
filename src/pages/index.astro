@@ -29,6 +29,14 @@ import Layout from '../layouts/Layout.astro';
           <button data-viz="trails">Flowing Trails</button>
         </div>
       </div>
+      <span class="header-divider"></span>
+      <button id="share-btn" title="Share Code">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
+          <polyline points="16 6 12 2 8 6"/>
+          <line x1="12" y1="2" x2="12" y2="15"/>
+        </svg>
+      </button>
     </div>
   </header>
 
@@ -189,6 +197,7 @@ import Layout from '../layouts/Layout.astro';
     import { CustomScope } from '../lib/customScope';
     import { CustomSpectrum } from '../lib/customSpectrum';
     import { APP_CONFIG } from '../lib/appConfig';
+    import { getCodeFromUrl, generateShareUrl, clearCodeFromUrl } from '../lib/urlShare';
 
     // Make slider functions available globally for evaluated code
     // These are needed by the transpiler which converts slider() to sliderWithID()
@@ -239,6 +248,7 @@ import Layout from '../layouts/Layout.astro';
     const audioVizBtn = document.getElementById('audio-viz-btn') as HTMLButtonElement;
     const logoElement = document.querySelector('.header h1') as HTMLElement;
     const toast = document.getElementById('toast') as HTMLDivElement;
+    const shareBtn = document.getElementById('share-btn') as HTMLButtonElement;
     let currentVizStyle = APP_CONFIG.defaultBackgroundEffect; // Default style from config
     let audioVizEnabled = APP_CONFIG.audioVisualizersEnabled; // Audio visualizers state from config
     let customScope: CustomScope | null = null; // Custom scope visualizer instance
@@ -247,8 +257,12 @@ import Layout from '../layouts/Layout.astro';
     // Mobile detection - use lighter visualizers on mobile
     const isMobile = window.matchMedia('(max-width: 768px)').matches;
 
-    // Default Strudel code from config
-    const exampleCode = APP_CONFIG.defaultCode;
+    // Check for shared code in URL, otherwise use default
+    const sharedCode = getCodeFromUrl();
+    const exampleCode = sharedCode || APP_CONFIG.defaultCode;
+    if (sharedCode) {
+      clearCodeFromUrl(); // Clean URL after extracting code
+    }
 
     // Debounce timer for code changes
     let codeChangeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1615,6 +1629,33 @@ import Layout from '../layouts/Layout.astro';
     stopBtn.addEventListener('click', stopCode);
     bankSelect.addEventListener('change', handleBankChange);
 
+    // Share button - copy share link to clipboard
+    shareBtn.addEventListener('click', async () => {
+      const code = getCode(editor);
+      if (!code.trim()) {
+        showToast('No code to share');
+        return;
+      }
+
+      const { url, error } = generateShareUrl(code);
+      if (!url) {
+        showToast('Failed to generate share link');
+        return;
+      }
+
+      try {
+        await navigator.clipboard.writeText(url);
+        if (error) {
+          showToast('Link copied! Warning: URL is long', 4000);
+        } else {
+          showToast('Share link copied!', 2000);
+        }
+      } catch (err) {
+        console.error('Clipboard write failed:', err);
+        showToast('Failed to copy link');
+      }
+    });
+
     // Toggle visualizer dropdown
     vizBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1800,6 +1841,11 @@ import Layout from '../layouts/Layout.astro';
 
     // Initialize on load
     init();
+
+    // Show toast if code was loaded from shared URL
+    if (sharedCode) {
+      showToast('Loaded shared code!', 2000);
+    }
 
     // Mobile: use lightweight visualizers (only pianoroll, no background effects)
     if (isMobile) {

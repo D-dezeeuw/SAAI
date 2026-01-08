@@ -3,8 +3,8 @@ import { chat, DEFAULT_MODELS } from '../../lib/openrouter';
 import { EVOLUTION_PROMPT, buildEvolutionPrompt } from '../../lib/prompts';
 
 export const POST: APIRoute = async ({ request }) => {
-  const apiKey = import.meta.env.OPENROUTER_API_KEY;
-  const modelCodegen = import.meta.env.MODEL_CODEGEN || DEFAULT_MODELS.CODEGEN;
+  const apiKey = process.env.OPENROUTER_API_KEY || import.meta.env.OPENROUTER_API_KEY;
+  const modelCodegen = process.env.MODEL_CODEGEN || import.meta.env.MODEL_CODEGEN || DEFAULT_MODELS.CODEGEN;
 
   if (!apiKey) {
     return new Response(

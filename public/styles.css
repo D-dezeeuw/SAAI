@@ -1081,6 +1081,10 @@ button {
 
 /* Mobile responsive styles */
 @media (max-width: 768px) {
+  .header h1 {
+    margin: 0 0 0 0.5rem;
+  }
+
   .input-group {
     flex-direction: column;
   }
@@ -1104,6 +1108,7 @@ button {
 
   .alter-section {
     flex-direction: column;
+    max-height: 300px;
   }
 
   .alter-section > * {
@@ -1116,13 +1121,40 @@ button {
 
   #alter-btn {
     width: 100%;
+    height: 44px;
+    font-size: 0;
+  }
+
+  #alter-btn::after {
+    content: 'Send';
+    font-size: 0.875rem;
   }
 
   #evolve-btn,
   .alter-play-btn {
-    width: 32px;
-    margin-left: auto;
-    margin-right: auto;
+    width: 100%;
+    height: 44px;
+    min-width: unset;
+    max-width: unset;
+    min-height: 44px;
+    border-radius: 6px;
+  }
+
+  #evolve-btn {
+    font-size: 0;
+  }
+
+  #evolve-btn::after {
+    content: 'Auto ✧';
+    font-size: 0.875rem;
+  }
+
+  #evolve-btn.active::after {
+    content: 'Auto ✧';
+    font-size: 0.875rem;
+    inset: unset;
+    position: static;
+    background: transparent;
   }
 
   .shortcuts-popup,

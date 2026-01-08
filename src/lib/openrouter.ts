@@ -39,21 +39,27 @@ export async function chat(
     { role: 'user', content: userPrompt }
   ];
 
-  const response = await fetch(OPENROUTER_API_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-      'HTTP-Referer': 'https://strudel-ai.local',
-      'X-Title': 'Strudel AI'
-    },
-    body: JSON.stringify({
-      model,
-      messages,
-      temperature: 0.7,
-      max_tokens: 2000
-    })
-  });
+  let response;
+  try {
+    response = await fetch(OPENROUTER_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+        'HTTP-Referer': 'https://strudel-ai.local',
+        'X-Title': 'Strudel AI'
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature: 0.7,
+        max_tokens: 2000
+      })
+    });
+  } catch (fetchError) {
+    console.error('Fetch failed:', fetchError);
+    throw new Error(`Network error: ${fetchError instanceof Error ? fetchError.message : 'Failed to connect to OpenRouter'}`);
+  }
 
   if (!response.ok) {
     const error = await response.text();

@@ -68,6 +68,10 @@ export interface ShaderContext {
   lastAudio: AudioData;
   isIdle: boolean;
   startTime: number;
+  // Pre-allocated arrays for particle data (avoids GC pressure)
+  positionData: Float32Array;
+  sizeData: Float32Array;
+  colorData: Float32Array;
   // Trail-specific resources
   trailFramebuffers?: TrailFramebuffers;
   quadResources?: QuadResources;
@@ -594,6 +598,10 @@ export function initShader(canvas: HTMLCanvasElement, style: string): ShaderCont
     lastAudio: { intensity: 0, bass: 0, treble: 0, time: 0 },
     isIdle: true,
     startTime: performance.now(),
+    // Pre-allocate arrays to avoid GC pressure during playback
+    positionData: new Float32Array(particles.length * 2),
+    sizeData: new Float32Array(particles.length),
+    colorData: new Float32Array(particles.length * 4),
     trailFramebuffers,
     quadResources,
   };
@@ -628,31 +636,28 @@ export function initShader(canvas: HTMLCanvasElement, style: string): ShaderCont
 
 // Upload particle data to GPU buffers
 function uploadParticleData(ctx: ShaderContext): void {
-  const { gl, particles, buffers } = ctx;
+  const { gl, particles, buffers, positionData, sizeData, colorData } = ctx;
 
-  const positions = new Float32Array(particles.length * 2);
-  const sizes = new Float32Array(particles.length);
-  const colors = new Float32Array(particles.length * 4);
-
+  // Reuse pre-allocated arrays to avoid GC pressure
   for (let i = 0; i < particles.length; i++) {
     const p = particles[i];
-    positions[i * 2] = p.x;
-    positions[i * 2 + 1] = p.y;
-    sizes[i] = p.size;
-    colors[i * 4] = p.r;
-    colors[i * 4 + 1] = p.g;
-    colors[i * 4 + 2] = p.b;
-    colors[i * 4 + 3] = p.alpha;
+    positionData[i * 2] = p.x;
+    positionData[i * 2 + 1] = p.y;
+    sizeData[i] = p.size;
+    colorData[i * 4] = p.r;
+    colorData[i * 4 + 1] = p.g;
+    colorData[i * 4 + 2] = p.b;
+    colorData[i * 4 + 3] = p.alpha;
   }
 
   gl.bindBuffer(gl.ARRAY_BUFFER, buffers.position);
-  gl.bufferSubData(gl.ARRAY_BUFFER, 0, positions);
+  gl.bufferSubData(gl.ARRAY_BUFFER, 0, positionData);
 
   gl.bindBuffer(gl.ARRAY_BUFFER, buffers.size);
-  gl.bufferSubData(gl.ARRAY_BUFFER, 0, sizes);
+  gl.bufferSubData(gl.ARRAY_BUFFER, 0, sizeData);
 
   gl.bindBuffer(gl.ARRAY_BUFFER, buffers.color);
-  gl.bufferSubData(gl.ARRAY_BUFFER, 0, colors);
+  gl.bufferSubData(gl.ARRAY_BUFFER, 0, colorData);
 }
 
 // Render loop - just draws, no calculations
@@ -914,7 +919,12 @@ export function setShaderStyle(ctx: ShaderContext, style: string): void {
   ctx.particles = createParticles(style, canvas.width, canvas.height);
   ctx.currentStyle = style;
 
-  // Reallocate buffers for new particle count
+  // Reallocate pre-allocated arrays for new particle count
+  ctx.positionData = new Float32Array(ctx.particles.length * 2);
+  ctx.sizeData = new Float32Array(ctx.particles.length);
+  ctx.colorData = new Float32Array(ctx.particles.length * 4);
+
+  // Reallocate GPU buffers for new particle count
   gl.bindBuffer(gl.ARRAY_BUFFER, buffers.position);
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(ctx.particles.length * 2), gl.DYNAMIC_DRAW);
 
@@ -954,6 +964,21 @@ export function setShaderStyle(ctx: ShaderContext, style: string): void {
 
   // Upload initial data
   uploadParticleData(ctx);
+}
+
+// Stop the render loop (keeps resources allocated)
+export function stopShader(ctx: ShaderContext): void {
+  if (ctx.animationId) {
+    cancelAnimationFrame(ctx.animationId);
+    ctx.animationId = null;
+  }
+}
+
+// Start the render loop (if not already running)
+export function startShader(ctx: ShaderContext): void {
+  if (ctx.animationId === null) {
+    startRenderLoop(ctx);
+  }
 }
 
 // Cleanup

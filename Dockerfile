@@ -18,6 +18,9 @@ RUN npm run build
 # Production stage
 FROM node:20-alpine AS runner
 
+# Add CA certificates for HTTPS connections to external APIs
+RUN apk add --no-cache ca-certificates
+
 WORKDIR /app
 
 # Copy built files from builder

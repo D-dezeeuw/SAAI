@@ -22,5 +22,5 @@ echo "Building Docker image..."
 docker build -t strudel-ai .
 
 echo ""
-echo "Starting container..."
-docker run -p 4321:4321 --env-file .env strudel-ai
+echo "Build complete! To run the container:"
+echo "  docker run -p 4321:4321 --env-file .env strudel-ai"

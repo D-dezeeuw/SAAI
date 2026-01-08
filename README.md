@@ -78,6 +78,25 @@ Background effects react to:
 | `<` | Previous Background Effect |
 | `>` | Next Background Effect |
 
+## Mobile Support
+
+SAAI is fully responsive and works on mobile devices:
+
+- **Responsive layout** - UI adapts to smaller screens
+- **Optimized performance** - Background effects and scope/spectrum visualizers are disabled on mobile to save battery and CPU
+- **Touch-friendly** - Larger buttons and stacked layouts for easier interaction
+- **Piano roll only** - On mobile, only the lightweight piano roll visualizer runs
+
+## Browser Requirements
+
+SAAI requires a modern browser with:
+
+- **WebGL2 support** - Required for background particle effects
+- **Web Audio API** - Required for audio playback and visualization
+- **ES2020+ JavaScript** - Modern JavaScript features
+
+**Recommended browsers:** Chrome, Firefox, Safari, Edge (latest versions)
+
 ## Configuration
 
 Visual effects can be customized in `src/lib/configuration.ts`:
@@ -103,11 +122,15 @@ OPENROUTER_API_KEY=your_key_here
 
 Only [OpenRouter](https://openrouter.ai/) is supported, which gives you access to many models and pay-per-token pricing.
 
-### Recommended Models
-Configure three models for each task in the UI or code:
-- **Prompt Enhancement** - Creative chat model (e.g., Claude, GPT-4)
-- **Code Generation** - Coding model (e.g., Claude, Gemini)
-- **Code Alteration** - Lightweight model works fine (e.g., Gemini Flash)
+### Models
+
+Currently SAAI uses **Google Gemini 2.5 Flash Preview** for all AI tasks (prompt enhancement, code generation, and alteration). This model provides a good balance of speed, quality, and cost.
+
+You can override the default models via environment variables:
+- `MODEL_CONTEXT` - Model for prompt enhancement
+- `MODEL_CODEGEN` - Model for code generation and alteration
+
+Models are accessed through [OpenRouter](https://openrouter.ai/), which supports many providers.
 
 ## Installation
 
@@ -214,16 +237,19 @@ pm2 start dist/server/entry.mjs --name strudel-ai
 ```
 src/
 ├── pages/
-│   ├── index.astro      # Main UI
-│   └── api/             # AI endpoints (generate, alter, evolve)
+│   ├── index.astro       # Main UI
+│   └── api/              # AI endpoints (generate, alter, evolve)
 ├── lib/
-│   ├── shader.ts        # WebGL particle system
-│   ├── configuration.ts # Visual effect settings
-│   ├── prompts.ts       # AI system prompts
-│   ├── customScope.ts   # Waveform visualizer
-│   └── customSpectrum.ts# Spectrum visualizer
+│   ├── openrouter.ts     # OpenRouter API client
+│   ├── prompts.ts        # AI system prompts
+│   ├── editor.ts         # CodeMirror editor setup
+│   ├── shader.ts         # WebGL particle system
+│   ├── configuration.ts  # Visual effect settings
+│   ├── appConfig.ts      # Application defaults
+│   ├── customScope.ts    # Waveform visualizer
+│   └── customSpectrum.ts # Spectrum visualizer
 └── layouts/
-    └── Layout.astro     # Base layout
+    └── Layout.astro      # Base layout
 ```
 
 ## Upcoming Features
@@ -236,6 +262,7 @@ src/
 - **Expanded Sample Library** - Additional support for samples, drum kits, and sound banks
 - **Pattern Templates** - Reusable snippets for specific drum patterns, synth presets, and common arrangements
 - **Shareable Creations** - Share your Strudel patterns via URL with code compressed into a hash
+- **Browser-Based API Keys** - Add your own OpenRouter API key directly in the browser and select from available models without server configuration
 - **Codebase Restructure** - Cleanup and reorganization for better maintainability and modularity
 
 ## License

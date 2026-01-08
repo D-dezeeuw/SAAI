@@ -185,7 +185,7 @@ import Layout from '../layouts/Layout.astro';
     import { createEditor, getCode, setCode, updateHighlights, clearHighlights, updateSliderWidgets, updateWidgets } from '../lib/editor';
     import { sliderWithID, slider } from '@strudel/codemirror';
     import type { EditorView } from '@codemirror/view';
-    import { initShader, updateShader, setShaderStyle, setShaderIdle, cleanupShader, type ShaderContext, type AudioData } from '../lib/shader';
+    import { initShader, updateShader, setShaderStyle, setShaderIdle, cleanupShader, startShader, type ShaderContext, type AudioData } from '../lib/shader';
     import { CustomScope } from '../lib/customScope';
     import { CustomSpectrum } from '../lib/customSpectrum';
     import { APP_CONFIG } from '../lib/appConfig';
@@ -743,18 +743,18 @@ import Layout from '../layouts/Layout.astro';
           updateShader(window.__shaderCtx, audioData);
         }
 
+        // Filter active haps once (used for both logo glow and code highlighting)
+        const activeHaps = haps.filter((hap: any) => {
+          const start = hap.whole?.begin ?? hap.part?.begin ?? 0;
+          const end = hap.whole?.end ?? hap.part?.end ?? 0;
+          return now >= start && now < end;
+        });
+
         // Update logo glow based on active notes (beat-reactive)
         if (logoElement) {
-          // Count active haps and calculate intensity based on what's playing
-          const activeNow = haps.filter((hap: any) => {
-            const start = hap.whole?.begin ?? hap.part?.begin ?? 0;
-            const end = hap.whole?.end ?? hap.part?.end ?? 0;
-            return now >= start && now < end;
-          });
-
           // Weight by sound type - drums/bass get more weight
           let intensity = 0;
-          for (const hap of activeNow) {
+          for (const hap of activeHaps) {
             const sound = hap.value?.s || '';
             const note = hap.value?.note ?? hap.value?.n;
             // Bass drum and low notes get more weight
@@ -787,12 +787,6 @@ import Layout from '../layouts/Layout.astro';
         }
 
         // Extract locations from active haps for code highlighting
-        const activeHaps = haps.filter((hap: any) => {
-          const start = hap.whole?.begin ?? hap.part?.begin ?? 0;
-          const end = hap.whole?.end ?? hap.part?.end ?? 0;
-          return now >= start && now < end;
-        });
-
         const highlights: {from: number, to: number}[] = [];
         for (const hap of activeHaps) {
           // Debug: log hap structure (without JSON.stringify due to BigInt)
@@ -1059,30 +1053,31 @@ import Layout from '../layouts/Layout.astro';
 
       // Note: CustomScope uses window.__scopeAnalyser which is set by AudioContext interception
 
-      // Initialize custom scope if not exists
-      if (!customScope) {
-        customScope = new CustomScope(scopeCanvas, {
-          color: '#FF00FF',
-          thickness: 3,
-          scale: 0.25,
-          pos: 0.5,
-          align: true,
-          glow: true,
-          glowIntensity: 8
-        });
-      }
+      // Initialize custom scope and spectrum only on desktop (skip on mobile for performance)
+      if (!isMobile) {
+        if (!customScope) {
+          customScope = new CustomScope(scopeCanvas, {
+            color: '#FF00FF',
+            thickness: 3,
+            scale: 0.25,
+            pos: 0.5,
+            align: true,
+            glow: true,
+            glowIntensity: 8
+          });
+        }
 
-      // Initialize custom spectrum if not exists
-      if (!customSpectrum) {
-        customSpectrum = new CustomSpectrum(spectrumCanvas, {
-          color: '#00FFFF',
-          speed: 1,
-          min: -80,
-          max: 0,
-          thickness: 1,
-          glow: true,
-          glowIntensity: 5
-        });
+        if (!customSpectrum) {
+          customSpectrum = new CustomSpectrum(spectrumCanvas, {
+            color: '#00FFFF',
+            speed: 1,
+            min: -80,
+            max: 0,
+            thickness: 1,
+            glow: true,
+            glowIntensity: 5
+          });
+        }
       }
 
       // Initialize shader if not already running and a style is selected
@@ -1092,6 +1087,11 @@ import Layout from '../layouts/Layout.astro';
         } catch (e) {
           console.warn('Shader initialization failed:', e);
         }
+      }
+
+      // Ensure shader is running (it may have been stopped if set to 'none' previously)
+      if (window.__shaderCtx && currentVizStyle !== 'none') {
+        startShader(window.__shaderCtx);
       }
 
       // Add .analyze('viz') to create a Strudel analyser that both visualizers can use
@@ -1157,9 +1157,11 @@ import Layout from '../layouts/Layout.astro';
         }
 
         startHighlighting();
-        // Start custom visualizers (they use window.__scopeAnalyser which now points to Strudel's)
-        customScope?.start();
-        customSpectrum?.start();
+        // Start custom visualizers only on desktop and if enabled (they use window.__scopeAnalyser)
+        if (!isMobile && audioVizEnabled) {
+          customScope?.start();
+          customSpectrum?.start();
+        }
         isPlaying = true;
         isPaused = false;
         playBtn.textContent = '⏸';
@@ -1436,6 +1438,17 @@ import Layout from '../layouts/Layout.astro';
       spectrumCanvas.classList.toggle('hidden', !audioVizEnabled);
       scopeCanvas.classList.toggle('hidden', !audioVizEnabled);
       pianorollCanvas.classList.toggle('hidden', !audioVizEnabled);
+
+      // Actually start/stop the animation loops (not just CSS hide)
+      if (!isMobile) {
+        if (audioVizEnabled && isPlaying) {
+          customScope?.start();
+          customSpectrum?.start();
+        } else {
+          customScope?.stop();
+          customSpectrum?.stop();
+        }
+      }
     }
 
     // Toggle "visuals only" mode - hide UI, enable all visualizers, set background to orbs

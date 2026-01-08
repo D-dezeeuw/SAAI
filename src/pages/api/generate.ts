@@ -8,9 +8,9 @@ import {
 } from '../../lib/prompts';
 
 export const POST: APIRoute = async ({ request }) => {
-  const apiKey = import.meta.env.OPENROUTER_API_KEY;
-  const modelContext = import.meta.env.MODEL_CONTEXT || DEFAULT_MODELS.CONTEXT;
-  const modelCodegen = import.meta.env.MODEL_CODEGEN || DEFAULT_MODELS.CODEGEN;
+  const apiKey = process.env.OPENROUTER_API_KEY || import.meta.env.OPENROUTER_API_KEY;
+  const modelContext = process.env.MODEL_CONTEXT || import.meta.env.MODEL_CONTEXT || DEFAULT_MODELS.CONTEXT;
+  const modelCodegen = process.env.MODEL_CODEGEN || import.meta.env.MODEL_CODEGEN || DEFAULT_MODELS.CODEGEN;
 
   if (!apiKey) {
     return new Response(

@@ -1,11 +1,11 @@
 import type { APIRoute } from 'astro';
-import { chat } from '../../lib/openrouter';
+import { chat } from '../../lib/api/openrouter';
 import {
   STAGE1_SYSTEM_PROMPT,
   STAGE2_SYSTEM_PROMPT,
   buildStage1Prompt,
   buildStage2Prompt
-} from '../../lib/prompts';
+} from '../../lib/api/prompts';
 import {
   getApiConfig,
   validateApiKey,
@@ -13,7 +13,7 @@ import {
   validateRequired,
   cleanCodeResponse,
   formatError
-} from '../../lib/apiUtils';
+} from '../../lib/utils/apiUtils';
 
 interface GenerateRequestBody {
   message: string;

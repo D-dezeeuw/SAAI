@@ -3,7 +3,7 @@
  * Eliminates duplication in shader.ts
  */
 
-import { CONFIG } from './configuration';
+import { CONFIG } from '../config/configuration';
 
 // Shorthand color references from config
 const CYAN = CONFIG.colors.cyan;

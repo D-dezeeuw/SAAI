@@ -1,7 +1,7 @@
 // High-performance music-reactive particle system using point sprites
 // Architecture: O(particles) instead of O(pixels × particles)
 
-import { CONFIG } from './configuration';
+import { CONFIG } from '../config/configuration';
 import {
   interpolateColor,
   randomInRange,
@@ -12,13 +12,16 @@ import {
   getTrailDirection,
   wrapPosition,
 } from './shaderUtils';
-
-export interface AudioData {
-  intensity: number;    // 0-1, overall activity
-  bass: number;         // 0-1, low frequency energy
-  treble: number;       // 0-1, high frequency energy
-  time: number;         // Musical time from Strudel
-}
+import {
+  VERTEX_SHADER,
+  ORBS_FRAGMENT,
+  STARS_FRAGMENT,
+  TRAILS_FRAGMENT,
+  QUAD_VERTEX,
+  FADE_FRAGMENT,
+  COMPOSITE_FRAGMENT,
+} from './shaderSources';
+import type { AudioData } from '../types';
 
 interface Particle {
   x: number;
@@ -85,145 +88,13 @@ export interface ShaderContext {
   // Trail-specific resources
   trailFramebuffers?: TrailFramebuffers;
   quadResources?: QuadResources;
+  // Resize handler for cleanup
+  resizeHandler?: () => void;
 }
 
 // Shorthand color references from config
 const CYAN = CONFIG.colors.cyan;
 const PINK = CONFIG.colors.pink;
-
-// Vertex shader for point sprites
-const VERTEX_SHADER = `#version 300 es
-in vec2 a_position;
-in float a_size;
-in vec4 a_color;
-
-uniform vec2 u_resolution;
-uniform float u_bass;
-uniform float u_time;
-
-out vec4 v_color;
-
-void main() {
-  // Convert pixel position to clip space
-  vec2 clipPos = (a_position / u_resolution) * 2.0 - 1.0;
-  clipPos.y *= -1.0;
-  gl_Position = vec4(clipPos, 0.0, 1.0);
-
-  // Point size with bass pulse - more pronounced reaction
-  gl_PointSize = a_size * (0.7 + u_bass * 0.8);
-
-  v_color = a_color;
-}`;
-
-// Fragment shader for soft glowing orbs - gentle and ambient
-const ORBS_FRAGMENT = `#version 300 es
-precision highp float;
-
-in vec4 v_color;
-out vec4 fragColor;
-
-void main() {
-  vec2 coord = gl_PointCoord * 2.0 - 1.0;
-  float dist = length(coord);
-
-  if (dist > 1.0) discard;
-
-  // Soft diffuse glow - toned down
-  float glow = exp(-dist * dist * 2.5);
-  // Subtle core
-  float core = exp(-dist * dist * 8.0);
-
-  float brightness = glow * 0.4 + core * 0.3;
-
-  fragColor = vec4(v_color.rgb * brightness, v_color.a * brightness);
-}`;
-
-// Fragment shader for twinkling stars
-const STARS_FRAGMENT = `#version 300 es
-precision highp float;
-
-in vec4 v_color;
-out vec4 fragColor;
-
-void main() {
-  vec2 coord = gl_PointCoord * 2.0 - 1.0;
-  float dist = length(coord);
-
-  if (dist > 1.0) discard;
-
-  // 4-pointed star shape
-  float angle = atan(coord.y, coord.x);
-  float star = abs(cos(angle * 2.0));
-  float shape = mix(dist, dist * (1.0 - star * 0.5), 0.6);
-
-  // Sharp bright center
-  float glow = exp(-shape * shape * 8.0);
-  float core = exp(-dist * dist * 20.0);
-
-  float brightness = glow + core * 2.0;
-
-  fragColor = vec4(v_color.rgb * brightness, v_color.a * brightness);
-}`;
-
-// Fragment shader for flowing trails - simple circular dot (framebuffer handles the trail)
-const TRAILS_FRAGMENT = `#version 300 es
-precision highp float;
-
-in vec4 v_color;
-out vec4 fragColor;
-
-void main() {
-  vec2 coord = gl_PointCoord * 2.0 - 1.0;
-  float dist = length(coord);
-
-  if (dist > 1.0) discard;
-
-  // Soft circular dot with bright core
-  float glow = exp(-dist * dist * 3.0);
-  float core = exp(-dist * dist * 10.0);
-
-  float brightness = glow * 0.5 + core * 0.8;
-
-  fragColor = vec4(v_color.rgb * brightness, v_color.a * brightness);
-}`;
-
-// Vertex shader for fullscreen quad (fade pass and composite)
-const QUAD_VERTEX = `#version 300 es
-in vec2 a_position;
-out vec2 v_texCoord;
-
-void main() {
-  gl_Position = vec4(a_position, 0.0, 1.0);
-  v_texCoord = a_position * 0.5 + 0.5;
-}`;
-
-// Fragment shader for fading previous frame (trail persistence)
-const FADE_FRAGMENT = `#version 300 es
-precision highp float;
-
-uniform sampler2D u_texture;
-uniform float u_fade;
-
-in vec2 v_texCoord;
-out vec4 fragColor;
-
-void main() {
-  vec4 color = texture(u_texture, v_texCoord);
-  fragColor = color * u_fade;
-}`;
-
-// Fragment shader for compositing framebuffer to screen
-const COMPOSITE_FRAGMENT = `#version 300 es
-precision highp float;
-
-uniform sampler2D u_texture;
-
-in vec2 v_texCoord;
-out vec4 fragColor;
-
-void main() {
-  fragColor = texture(u_texture, v_texCoord);
-}`;
 
 // Helper to create program with default vertex shader
 function createParticleProgram(gl: WebGL2RenderingContext, fragmentSource: string): WebGLProgram {
@@ -449,13 +320,15 @@ export function initShader(canvas: HTMLCanvasElement, style: string): ShaderCont
   // Create particles
   const particles = createParticles(style, canvas.width, canvas.height);
 
-  // Create buffers
-  const positionBuffer = gl.createBuffer()!;
-  const sizeBuffer = gl.createBuffer()!;
-  const colorBuffer = gl.createBuffer()!;
+  // Create buffers (with null checks for WebGL context loss)
+  const positionBuffer = gl.createBuffer();
+  const sizeBuffer = gl.createBuffer();
+  const colorBuffer = gl.createBuffer();
+  const vao = gl.createVertexArray();
 
-  // Create VAO
-  const vao = gl.createVertexArray()!;
+  if (!positionBuffer || !sizeBuffer || !colorBuffer || !vao) {
+    throw new Error('Failed to create WebGL buffers - context may be lost');
+  }
   gl.bindVertexArray(vao);
 
   // Setup position attribute
@@ -549,6 +422,9 @@ export function initShader(canvas: HTMLCanvasElement, style: string): ShaderCont
       ctx.trailFramebuffers = createTrailFramebuffers(gl, canvas.width, canvas.height);
     }
   };
+
+  // Store handler for cleanup and add listener
+  ctx.resizeHandler = resizeHandler;
   window.addEventListener('resize', resizeHandler);
 
   return ctx;
@@ -906,6 +782,11 @@ export function startShader(ctx: ShaderContext): void {
 export function cleanupShader(ctx: ShaderContext): void {
   if (ctx.animationId) {
     cancelAnimationFrame(ctx.animationId);
+  }
+
+  // Remove resize listener to prevent memory leaks
+  if (ctx.resizeHandler) {
+    window.removeEventListener('resize', ctx.resizeHandler);
   }
 
   const { gl, programs, buffers, vao } = ctx;

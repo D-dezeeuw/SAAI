@@ -64,11 +64,20 @@ export function compressCode(code: string): string {
 }
 
 /**
- * Decompress URL-safe base64 string back to code
+ * Result type for decompression - distinguishes empty input from errors
  */
-export function decompressCode(compressed: string): string | null {
+export interface DecompressResult {
+  code: string | null;
+  error?: string;
+}
+
+/**
+ * Decompress URL-safe base64 string back to code
+ * Returns { code, error? } to distinguish empty input from actual errors
+ */
+export function decompressCode(compressed: string): DecompressResult {
   if (!compressed?.trim()) {
-    return null;
+    return { code: null }; // Empty input, not an error
   }
 
   try {
@@ -76,10 +85,10 @@ export function decompressCode(compressed: string): string | null {
     const binary = atob(base64);
     const bytes = binaryStringToUint8(binary);
     const decompressed = pako.inflate(bytes);
-    return new TextDecoder().decode(decompressed);
+    return { code: new TextDecoder().decode(decompressed) };
   } catch (error) {
     console.error('Failed to decompress code:', error);
-    return null;
+    return { code: null, error: error instanceof Error ? error.message : 'Decompression failed' };
   }
 }
 
@@ -108,11 +117,12 @@ export function generateShareUrl(code: string): { url: string; error?: string } 
 
 /**
  * Extract and decompress code from current URL
+ * Returns { code, error? } to allow callers to handle errors appropriately
  */
-export function getCodeFromUrl(): string | null {
+export function getCodeFromUrl(): DecompressResult {
   const params = new URLSearchParams(window.location.search);
   const compressed = params.get(URL_PARAM);
-  return compressed ? decompressCode(compressed) : null;
+  return compressed ? decompressCode(compressed) : { code: null };
 }
 
 /**

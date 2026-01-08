@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro';
-import { chat } from '../../lib/openrouter';
-import { EVOLUTION_PROMPT, buildEvolutionPrompt } from '../../lib/prompts';
+import { chat } from '../../lib/api/openrouter';
+import { EVOLUTION_PROMPT, buildEvolutionPrompt } from '../../lib/api/prompts';
 import {
   getApiConfig,
   validateApiKey,
@@ -10,7 +10,7 @@ import {
   jsonResponse,
   errorResponse,
   formatError
-} from '../../lib/apiUtils';
+} from '../../lib/utils/apiUtils';
 
 interface EvolveRequestBody {
   currentCode: string;

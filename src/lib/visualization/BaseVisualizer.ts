@@ -28,7 +28,7 @@ export abstract class BaseVisualizer<TOptions extends BaseVisualizerOptions> {
   protected animationId: number | null = null;
   protected options: TOptions;
   protected isRunning: boolean = false;
-  protected dataArray: Float32Array | null = null;
+  protected dataArray: Float32Array<ArrayBuffer> | null = null;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -86,7 +86,7 @@ export abstract class BaseVisualizer<TOptions extends BaseVisualizerOptions> {
   /**
    * Initialize or resize the data array buffer
    */
-  protected ensureDataArray(bufferLength: number): Float32Array {
+  protected ensureDataArray(bufferLength: number): Float32Array<ArrayBuffer> {
     if (!this.dataArray || this.dataArray.length !== bufferLength) {
       this.dataArray = new Float32Array(bufferLength);
     }

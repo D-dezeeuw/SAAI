@@ -1,13 +1,11 @@
+import { API_TIMEOUT_MS } from '../config/constants';
+import type { TokenUsage } from '../types';
+
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
 interface Message {
   role: 'system' | 'user' | 'assistant';
   content: string;
-}
-
-export interface TokenUsage {
-  promptTokens: number;
-  completionTokens: number;
 }
 
 export interface ChatResponse {
@@ -39,6 +37,10 @@ export async function chat(
     { role: 'user', content: userPrompt }
   ];
 
+  // Create AbortController for timeout protection
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+
   let response;
   try {
     response = await fetch(OPENROUTER_API_URL, {
@@ -54,12 +56,19 @@ export async function chat(
         messages,
         temperature: 0.7,
         max_tokens: 2000
-      })
+      }),
+      signal: controller.signal
     });
   } catch (fetchError) {
+    clearTimeout(timeoutId);
+    if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+      throw new Error(`Request timeout: API call exceeded ${API_TIMEOUT_MS / 1000} seconds`);
+    }
     console.error('Fetch failed:', fetchError);
     throw new Error(`Network error: ${fetchError instanceof Error ? fetchError.message : 'Failed to connect to OpenRouter'}`);
   }
+
+  clearTimeout(timeoutId);
 
   if (!response.ok) {
     const error = await response.text();

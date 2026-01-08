@@ -3,7 +3,7 @@
  * Eliminates duplication across generate.ts, alter.ts, and evolve.ts
  */
 
-import { DEFAULT_MODELS } from './openrouter';
+import { DEFAULT_MODELS } from '../api/openrouter';
 
 /**
  * API configuration resolved from environment variables

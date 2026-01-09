@@ -59,6 +59,52 @@ export const CONFIG = {
     alphaMax: 0.65,              // Maximum alpha
   },
 
+  // --- QUASAR STYLE ---
+  // Animated neon pattern with white lines and colored seed glow
+  quasar: {
+    scale: 8.0,                  // Base cells per screen width (varies with density)
+    orbitRadius: 0.5,            // Orbit radius relative to cell (0.2-0.4 recommended)
+    edgeWidth: 0.005,            // Edge line thickness (smaller = thinner lines)
+    glowIntensity: 2.0,          // Seed point glow brightness (1.0-3.0 range)
+    dotSize: 0.05,               // Seed point radius
+    bassReactivity: 1.0,         // How much dots/glow react to bass (1.0 = double, 2.0 = triple)
+    bloomRadius: 8.0,            // Bloom blur radius in pixels
+    bloomIntensity: 0.6,         // Bloom strength (0.3-1.0 range)
+  },
+
+  // --- OSCILLO STYLE ---
+  // Audio-reactive oscilloscope with zooming trails and beat rotation
+  oscillo: {
+    lineWidth: 3.0,              // Oscilloscope line thickness (px)
+    waveAmplitude: 0.3,          // Vertical amplitude (0-1 of screen height)
+    trailDecay: 0.985,           // Trail persistence (0.95=short, 0.99=long)
+    zoomSpeed: 1.01,             // Zoom per frame (1.01 = 1% zoom toward center)
+    rotationImpulse: 0.08,       // Trail rotation per beat (radians, ~4.5 degrees)
+    rotationDecay: 0.9975,       // Trail rotation decay per frame (0.99=fast, 0.999=slow)
+    glowIntensity: 1.5,          // Neon glow brightness
+    beatThreshold: 1.4,          // Energy spike threshold for beat detection
+    beatMinInterval: 300,        // Min ms between beat triggers
+    colorCycleSpeed: 0.15,       // Color cycle speed (full magenta-cyan-magenta per second)
+  },
+
+  // --- LAVA STYLE ---
+  // Metaball lava lamp with flowing blobs
+  lava: {
+    metaballCount: 10,           // Number of metaballs (8-12 recommended)
+    renderScale: 0.25,           // Low-res render scale (0.25 = 1/4 resolution)
+    threshold: 1.0,              // Metaball threshold (0.8-1.2 range)
+    edgeSharpness: 0.15,         // Edge transition width (smaller = sharper, 0.1-0.4)
+    baseSpeed: 0.2,              // Base vertical flow speed
+    horizontalDrift: 0.08,       // Horizontal movement range
+    radiusMin: 0.12,             // Minimum metaball radius
+    radiusMax: 0.22,             // Maximum metaball radius
+    pulseAmount: 0.02,           // Size pulsing amplitude
+    pulseSpeed: 1.5,             // Size pulsing speed
+    glowIntensity: 0.15,         // Glow amount at edges
+    bassRadiusBoost: 0.15,       // How much bass increases radius
+    bassSpeedBoost: 0.3,         // How much bass increases speed
+  },
+
   // --- MUSIC REACTIVITY ---
   // How particles respond to audio
   reactivity: {

@@ -27,7 +27,7 @@ export const EVOLUTION_INTERVAL_MS = 10000;
 // =============================================================================
 
 /** Available visualization styles */
-export const VIZ_STYLES = ['none', 'orbs', 'stars', 'trails'] as const;
+export const VIZ_STYLES = ['none', 'orbs', 'stars', 'trails', 'quasar', 'oscillo', 'lava'] as const;
 
 /** Number of cycles to query for pianoroll display */
 export const PIANOROLL_QUERY_CYCLES = 4;

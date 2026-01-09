@@ -172,7 +172,7 @@ export interface TokenTotals {
 /**
  * Visualization style options
  */
-export type VizStyle = 'none' | 'orbs' | 'stars' | 'trails';
+export type VizStyle = 'none' | 'orbs' | 'stars' | 'trails' | 'quasar' | 'oscillo' | 'lava';
 
 /**
  * Saved UI state for mode restoration

@@ -116,45 +116,59 @@ export function createPlaybackManager(deps: PlaybackDeps): PlaybackManager {
     const pianorollCtx = window.__pianorollCtx;
 
     highlightFramer = new strudel.Framer(() => {
-      if (!strudelRepl?.scheduler?.pattern) return;
+      try {
+        if (!strudelRepl?.scheduler?.pattern) return;
 
-      const now = strudelRepl.scheduler.now();
-      const cycles = PIANOROLL_QUERY_CYCLES;
-      const haps = strudelRepl.scheduler.pattern.queryArc(now - cycles * PIANOROLL_PLAYHEAD, now + cycles * (1 - PIANOROLL_PLAYHEAD));
+        const now = strudelRepl.scheduler.now();
+        const cycles = PIANOROLL_QUERY_CYCLES;
+        const haps = strudelRepl.scheduler.pattern.queryArc(now - cycles * PIANOROLL_PLAYHEAD, now + cycles * (1 - PIANOROLL_PLAYHEAD));
 
-      if (pianorollCtx) {
-        drawPianoroll(pianorollCtx, haps, now, cycles);
-      }
+        if (pianorollCtx) {
+          drawPianoroll(pianorollCtx, haps, now, cycles);
+        }
 
-      if (window.__shaderCtx) {
-        const audioData = extractAudioData(haps, now);
-        updateShader(window.__shaderCtx, audioData);
-      }
+        if (window.__shaderCtx) {
+          const audioData = extractAudioData(haps, now);
+          updateShader(window.__shaderCtx, audioData);
+        }
 
-      const activeHaps = filterActiveHaps(haps, now);
+        const activeHaps = filterActiveHaps(haps, now);
 
-      if (logoElement) {
-        const intensity = calculateTotalIntensity(activeHaps);
-        const glowSize = LOGO_GLOW_MIN + intensity * (LOGO_GLOW_MAX - LOGO_GLOW_MIN);
-        const glowOpacity = LOGO_GLOW_BASE_OPACITY - intensity * LOGO_GLOW_OPACITY_FACTOR;
-        logoElement.style.filter = `drop-shadow(0 0 ${glowSize}px rgba(255, 255, 255, ${glowOpacity}))`;
-      }
+        if (logoElement) {
+          const intensity = calculateTotalIntensity(activeHaps);
+          const glowSize = LOGO_GLOW_MIN + intensity * (LOGO_GLOW_MAX - LOGO_GLOW_MIN);
+          const glowOpacity = LOGO_GLOW_BASE_OPACITY - intensity * LOGO_GLOW_OPACITY_FACTOR;
+          logoElement.style.filter = `drop-shadow(0 0 ${glowSize}px rgba(255, 255, 255, ${glowOpacity}))`;
+        }
 
-      const highlights: { from: number; to: number }[] = [];
-      for (const hap of activeHaps) {
-        if (hap.context?.locations) {
-          for (const loc of hap.context.locations) {
-            if (Array.isArray(loc) && loc.length >= 2) {
-              highlights.push({ from: loc[0] - codeOffset, to: loc[1] - codeOffset });
-            } else if (loc && typeof loc === 'object' && 'start' in loc && 'end' in loc) {
-              highlights.push({ from: (loc as { start: number; end: number }).start - codeOffset, to: (loc as { start: number; end: number }).end - codeOffset });
+        const highlights: { from: number; to: number }[] = [];
+        for (const hap of activeHaps) {
+          if (hap.context?.locations) {
+            for (const loc of hap.context.locations) {
+              if (Array.isArray(loc) && loc.length >= 2) {
+                highlights.push({ from: loc[0] - codeOffset, to: loc[1] - codeOffset });
+              } else if (loc && typeof loc === 'object' && 'start' in loc && 'end' in loc) {
+                highlights.push({ from: (loc as { start: number; end: number }).start - codeOffset, to: (loc as { start: number; end: number }).end - codeOffset });
+              }
             }
           }
         }
-      }
 
-      deps.updateHighlights(editor, highlights);
-    }, (err: unknown) => console.warn('Highlight error:', err));
+        deps.updateHighlights(editor, highlights);
+      } catch (err) {
+        // Suppress non-finite AudioParam errors from Strudel's internal scheduling
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!msg.includes('non-finite')) {
+          console.warn('Highlight frame error:', err);
+        }
+      }
+    }, (err: unknown) => {
+      // Suppress non-finite AudioParam errors from Strudel's internal scheduling
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.includes('non-finite')) {
+        console.warn('Highlight error:', err);
+      }
+    });
 
     highlightFramer.start();
   }

@@ -28,6 +28,30 @@ export function filterActiveHaps(haps: Hap[], now: number): Hap[] {
   });
 }
 
+// Bass-type sample prefixes (drums, synths, 808s)
+const BASS_SAMPLE_PREFIXES = [
+  'bd',      // bass drum
+  'kick',    // kick drum
+  '808',     // 808 bass/kick
+  'bass',    // bass synth
+  'sub',     // sub bass
+  'tom',     // toms (low frequency)
+  'ft',      // floor tom
+  'lt',      // low tom
+];
+
+/**
+ * Check if a sample name indicates a bass-type sound
+ * @param sample - Sample name from hap
+ * @returns true if the sample is a bass-type sound
+ */
+function isBassySample(sample: string): boolean {
+  const lowerSample = sample.toLowerCase();
+  return BASS_SAMPLE_PREFIXES.some(prefix =>
+    lowerSample === prefix || lowerSample.startsWith(prefix + ':')
+  );
+}
+
 /**
  * Extract audio data from haps for shader visualization
  * Analyzes the haps to determine bass/treble intensity and overall activity
@@ -53,9 +77,9 @@ export function extractAudioData(haps: Hap[], now: number): AudioData {
         if (midi > TREBLE_THRESHOLD_MIDI) trebleCount++;
       }
     }
-    // Drum samples count as bass
+    // Drum/synth samples that count as bass
     const sample = hap.value?.s;
-    if (sample && (sample === 'bd' || sample.startsWith('bd:'))) {
+    if (sample && isBassySample(sample)) {
       bassCount++;
     }
   }

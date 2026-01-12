@@ -41,6 +41,9 @@ import Layout from '../layouts/Layout.astro';
           <line x1="12" y1="2" x2="12" y2="15"/>
         </svg>
       </button>
+      <button id="kofi-btn" class="kofi-btn" title="Support on Ko-fi">
+        <img src="https://storage.ko-fi.com/cdn/logomarkLogo.png" alt="Ko-fi" width="16" height="16" />
+      </button>
     </div>
   </header>
 
@@ -154,6 +157,7 @@ import Layout from '../layouts/Layout.astro';
       </div>
     </div>
     <div class="shortcuts-footer">
+      <span id="app-version" class="app-version"></span>
       <span>Dan de Zeeuw - Neko Media</span>
       <a href="https://github.com/D-dezeeuw/SAAI" target="_blank" rel="noopener noreferrer" class="github-link" title="View on GitHub">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -185,6 +189,22 @@ import Layout from '../layouts/Layout.astro';
     </div>
     <div class="token-popup-footer">
       <button id="reset-tokens" class="reset-tokens-btn">Reset Counters</button>
+    </div>
+  </div>
+
+  <!-- Ko-fi popup -->
+  <div id="kofi-overlay" class="kofi-overlay hidden"></div>
+  <div id="kofi-popup" class="kofi-popup hidden">
+    <div class="kofi-popup-header">
+      <span>Support SAAI</span>
+      <button id="kofi-popup-close" class="shortcuts-close">&times;</button>
+    </div>
+    <div class="kofi-popup-content">
+      <iframe
+        id="kofiframe"
+        src="https://ko-fi.com/nekomedia/?hidefeed=true&widget=true&embed=true&preview=true"
+        title="nekomedia">
+      </iframe>
     </div>
   </div>
 

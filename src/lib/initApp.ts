@@ -58,6 +58,10 @@ export function initApp(): void {
   // Get all DOM elements
   const dom = getDOMElements();
 
+  // Set app version in info popup
+  const versionElement = document.getElementById('app-version');
+  if (versionElement) versionElement.textContent = APP_CONFIG.version;
+
   // State
   let currentVizStyle: VizStyle = APP_CONFIG.defaultBackgroundEffect as VizStyle;
   let audioVizEnabled = APP_CONFIG.audioVisualizersEnabled;
@@ -162,6 +166,10 @@ export function initApp(): void {
       statsBtn: dom.statsBtn,
       tokenPopup: dom.tokenPopup,
       tokenPopupClose: dom.tokenPopupClose,
+      kofiBtn: dom.kofiBtn,
+      kofiOverlay: dom.kofiOverlay,
+      kofiPopup: dom.kofiPopup,
+      kofiPopupClose: dom.kofiPopupClose,
     },
     getState: () => ({
       isPlaying: playbackMgr.isPlaying(),
@@ -289,6 +297,8 @@ function bindEventListeners(
   dom.statsBtn.addEventListener('click', (e) => { e.stopPropagation(); uiMgr.toggleTokenPopup(); });
   dom.tokenPopupClose.addEventListener('click', (e) => { e.stopPropagation(); uiMgr.toggleTokenPopup(); });
   dom.resetTokensBtn.addEventListener('click', (e) => { e.stopPropagation(); resetAndUpdateDisplay(); });
+  dom.kofiBtn.addEventListener('click', (e) => { e.stopPropagation(); uiMgr.toggleKofiPopup(); });
+  dom.kofiPopupClose.addEventListener('click', (e) => { e.stopPropagation(); uiMgr.toggleKofiPopup(); });
 
   // Share button
   dom.shareBtn.addEventListener('click', async () => {

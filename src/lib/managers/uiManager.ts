@@ -40,6 +40,10 @@ export interface UIElements {
   shortcutsClose: HTMLButtonElement;
   tokenPopup: HTMLElement;
   tokenPopupClose: HTMLButtonElement;
+  kofiBtn: HTMLButtonElement;
+  kofiOverlay: HTMLElement;
+  kofiPopup: HTMLElement;
+  kofiPopupClose: HTMLButtonElement;
 }
 
 export interface UIManagerDeps {
@@ -88,6 +92,7 @@ export interface UIManager {
   updatePanelState: () => void;
   toggleShortcutsPopup: () => void;
   toggleTokenPopup: () => void;
+  toggleKofiPopup: () => void;
   closePopupsOnOutsideClick: (e: Event) => void;
   closePopupsOnEscape: () => void;
 }
@@ -395,11 +400,20 @@ export function createUIManager(deps: UIManagerDeps): UIManager {
   function toggleShortcutsPopup() {
     elements.shortcutsPopup.classList.toggle('hidden');
     elements.tokenPopup.classList.add('hidden');
+    elements.kofiPopup.classList.add('hidden');
   }
 
   function toggleTokenPopup() {
     elements.tokenPopup.classList.toggle('hidden');
     elements.shortcutsPopup.classList.add('hidden');
+    elements.kofiPopup.classList.add('hidden');
+  }
+
+  function toggleKofiPopup() {
+    elements.kofiPopup.classList.toggle('hidden');
+    elements.kofiOverlay.classList.toggle('hidden');
+    elements.shortcutsPopup.classList.add('hidden');
+    elements.tokenPopup.classList.add('hidden');
   }
 
   function closePopupsOnOutsideClick(e: Event) {
@@ -413,11 +427,19 @@ export function createUIManager(deps: UIManagerDeps): UIManager {
         !elements.statsBtn.contains(e.target as Node)) {
       elements.tokenPopup.classList.add('hidden');
     }
+    if (!elements.kofiPopup.classList.contains('hidden') &&
+        !elements.kofiPopup.contains(e.target as Node) &&
+        !elements.kofiBtn.contains(e.target as Node)) {
+      elements.kofiPopup.classList.add('hidden');
+      elements.kofiOverlay.classList.add('hidden');
+    }
   }
 
   function closePopupsOnEscape() {
     elements.shortcutsPopup.classList.add('hidden');
     elements.tokenPopup.classList.add('hidden');
+    elements.kofiPopup.classList.add('hidden');
+    elements.kofiOverlay.classList.add('hidden');
   }
 
   return {
@@ -437,6 +459,7 @@ export function createUIManager(deps: UIManagerDeps): UIManager {
     updatePanelState,
     toggleShortcutsPopup,
     toggleTokenPopup,
+    toggleKofiPopup,
     closePopupsOnOutsideClick,
     closePopupsOnEscape,
   };

@@ -18,6 +18,9 @@ export function hexToRgb01(hex: string): { r: number; g: number; b: number } {
 }
 
 export const APP_CONFIG = {
+  // --- Application Version ---
+  version: '1.0 - Beta "Lava Lamp"',
+
   // --- THEME COLORS ---
   // Primary theme colors with variants
   colors: {
@@ -37,7 +40,7 @@ export const APP_CONFIG = {
 
   // --- DEFAULT PROMPT ---
   // The default text shown in the prompt input field
-  defaultPrompt: 'Create an upbeat electronic music track with drums and bass and melodic synths.',
+  defaultPrompt: 'Produce an gnarly song with drums, bass, and synths.',
 
   // --- DEFAULT GENRE ---
   // Options: '' (no genre), 'edm', 'dnb', 'hiphop-trap', 'acid', 'jazz'
@@ -88,7 +91,7 @@ stack(
 
   // --- DEFAULT PANEL VISIBILITY ---
   // Control which UI panels are visible by default
-  generatePanelVisible: false,    // AI generation panel (✦ button)
-  codeSectionVisible: false,      // Code editor section
+  generatePanelVisible: true,    // AI generation panel (✦ button)
+  codeSectionVisible: true,      // Code editor section
   alterSectionVisible: true,     // Alter/evolve section
 };

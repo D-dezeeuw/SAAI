@@ -962,9 +962,18 @@ button {
   font-size: 0.75rem;
   color: rgba(255, 255, 255, 0.4);
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
+}
+
+.app-version {
+  flex-basis: 100%;
+  text-align: center;
+  color: var(--color-primary);
+  font-weight: 500;
+  margin-bottom: 0.25rem;
 }
 
 .github-link {
@@ -1058,6 +1067,100 @@ button {
   background: rgba(255, 255, 255, 0.1);
   border-color: rgba(255, 255, 255, 0.25);
   color: #fff;
+}
+
+/* Ko-fi button in header */
+.kofi-btn {
+  background: cyan;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem 0 0 0;
+  transition: background 0.2s ease;
+}
+
+.kofi-btn:hover,
+.kofi-btn:active {
+  background: #7fffff;
+}
+
+.kofi-btn img {
+  width: 14px;
+  height: 14px;
+}
+
+/* Ko-fi popup overlay */
+.kofi-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 1001;
+}
+
+.kofi-overlay.hidden {
+  display: none;
+}
+
+/* Ko-fi popup */
+.kofi-popup {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(20, 20, 20, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 0;
+  width: 400px;
+  max-width: 400px;
+  height: 75vh;
+  max-height: 700px;
+  z-index: 1002;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+}
+
+.kofi-popup.hidden {
+  display: none;
+}
+
+.kofi-popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.7);
+  flex-shrink: 0;
+}
+
+.kofi-popup-content {
+  flex: 1;
+  overflow: hidden;
+}
+
+.kofi-popup-content iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
 }
 
 /* Toast notification */
@@ -1198,6 +1301,13 @@ button {
   .shortcuts-popup,
   .token-popup {
     max-width: calc(100vw - 2rem);
+  }
+
+  .kofi-popup {
+    width: calc(100vw - 2rem);
+    max-width: none;
+    height: 75vh;
+    max-height: 700px;
   }
 
   .shortcuts-list {

@@ -56,6 +56,10 @@ export interface DOMElements {
   shortcutsClose: HTMLButtonElement;
   tokenPopup: HTMLDivElement;
   tokenPopupClose: HTMLButtonElement;
+  kofiBtn: HTMLButtonElement;
+  kofiOverlay: HTMLDivElement;
+  kofiPopup: HTMLDivElement;
+  kofiPopupClose: HTMLButtonElement;
 
   // Other
   logoElement: HTMLElement;
@@ -121,6 +125,10 @@ export function getDOMElements(): DOMElements {
     shortcutsClose: document.getElementById('shortcuts-close') as HTMLButtonElement,
     tokenPopup: document.getElementById('token-popup') as HTMLDivElement,
     tokenPopupClose: document.getElementById('token-popup-close') as HTMLButtonElement,
+    kofiBtn: document.getElementById('kofi-btn') as HTMLButtonElement,
+    kofiOverlay: document.getElementById('kofi-overlay') as HTMLDivElement,
+    kofiPopup: document.getElementById('kofi-popup') as HTMLDivElement,
+    kofiPopupClose: document.getElementById('kofi-popup-close') as HTMLButtonElement,
 
     // Other
     logoElement: document.querySelector('.header h1') as HTMLElement,

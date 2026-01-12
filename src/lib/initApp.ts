@@ -233,15 +233,8 @@ export function initApp(): void {
   playbackMgr.init();
   if (sharedCode) uiMgr.showToast('Loaded shared code!');
 
-  // Mobile: lightweight visualizers
-  if (isMobile) {
-    currentVizStyle = 'none';
-    dom.vizBtn.classList.remove('active');
-    dom.vizButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.viz === 'none'));
-    dom.scopeCanvas.classList.add('hidden');
-    dom.spectrumCanvas.classList.add('hidden');
-    dom.pianorollCanvas.classList.remove('hidden');
-  } else if (currentVizStyle !== 'none') {
+  // Initialize shader visualizer
+  if (currentVizStyle !== 'none') {
     try {
       window.__shaderCtx = initShader(dom.shaderCanvas, currentVizStyle);
       setShaderIdle(window.__shaderCtx);

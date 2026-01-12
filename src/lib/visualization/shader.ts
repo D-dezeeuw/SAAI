@@ -22,13 +22,16 @@ import {
   COMPOSITE_FRAGMENT,
   VORONOI_FRAGMENT,
   VORONOI_BLOOM_FRAGMENT,
-  OSCILLO_LINE_VERTEX,
+  OSCILLO_THICK_LINE_VERTEX,
   OSCILLO_LINE_FRAGMENT,
   OSCILLO_TRAIL_FRAGMENT,
   OSCILLO_COMPOSITE_FRAGMENT,
   LAVA_METABALL_FRAGMENT,
+  LAVA_METABALL_FRAGMENT_MOBILE,
   LAVA_UPSCALE_FRAGMENT,
+  LAVA_GLOW_FRAGMENT,
 } from './shaderSources';
+import { MOBILE_BREAKPOINT, MOBILE_MAX_METABALLS } from '../config/constants';
 import type { AudioData } from '../types';
 
 interface Particle {
@@ -90,6 +93,7 @@ interface QuasarResources {
     u_edgeWidth: WebGLUniformLocation | null;
     u_glowIntensity: WebGLUniformLocation | null;
     u_dotSize: WebGLUniformLocation | null;
+    u_bassReactivity: WebGLUniformLocation | null;
     u_bass: WebGLUniformLocation | null;
   };
   // Bloom post-processing
@@ -103,6 +107,14 @@ interface QuasarResources {
   // Framebuffer for render-to-texture
   framebuffer: WebGLFramebuffer;
   texture: WebGLTexture;
+  // Eased audio reactivity (like lava)
+  smoothedBass: number;
+  lastTime: number;
+  // Beat detection (like oscillo)
+  frequencyData: Uint8Array;
+  energyHistory: number[];
+  lastBeatTime: number;
+  beatBoost: number;
 }
 
 // Oscillo-specific resources for oscilloscope with zoom/rotation trails
@@ -116,6 +128,7 @@ interface OscilloResources {
     u_resolution: WebGLUniformLocation | null;
     u_color: WebGLUniformLocation | null;
     u_glowIntensity: WebGLUniformLocation | null;
+    u_lineWidth: WebGLUniformLocation | null;
   };
   // Trail uniforms
   trailUniforms: {
@@ -136,6 +149,8 @@ interface OscilloResources {
   quadBuffer: WebGLBuffer;
   lineVao: WebGLVertexArrayObject;
   lineBuffer: WebGLBuffer;
+  lineNormalBuffer: WebGLBuffer;
+  lineVertexCount: number;
   // Ping-pong framebuffers
   fbA: WebGLFramebuffer;
   fbB: WebGLFramebuffer;
@@ -146,6 +161,7 @@ interface OscilloResources {
   waveformData: Float32Array;
   frequencyData: Uint8Array;
   lineVertices: Float32Array;
+  lineNormals: Float32Array;
   trailRotation: number;        // Cumulative rotation for the trail effect
   energyHistory: number[];
   lastBeatTime: number;
@@ -168,14 +184,22 @@ interface LavaResources {
   // Programs
   metaballProgram: WebGLProgram;
   upscaleProgram: WebGLProgram;
+  glowProgram: WebGLProgram;
   // Framebuffer for low-res rendering
   framebuffer: WebGLFramebuffer;
   texture: WebGLTexture;
   lowResWidth: number;
   lowResHeight: number;
+  // Glow framebuffer (even lower res for blur effect)
+  glowFramebuffer: WebGLFramebuffer;
+  glowTexture: WebGLTexture;
+  glowWidth: number;
+  glowHeight: number;
   // Geometry
   quadVao: WebGLVertexArrayObject;
   quadBuffer: WebGLBuffer;
+  // Eased audio reactivity
+  smoothedBass: number;
   // Uniforms
   metaballUniforms: {
     u_resolution: WebGLUniformLocation | null;
@@ -183,13 +207,23 @@ interface LavaResources {
     u_metaballPositions: WebGLUniformLocation | null;
     u_metaballRadii: WebGLUniformLocation | null;
     u_metaballColors: WebGLUniformLocation | null;
+    u_metaballTypes: WebGLUniformLocation | null;
     u_threshold: WebGLUniformLocation | null;
     u_edgeSharpness: WebGLUniformLocation | null;
     u_glowIntensity: WebGLUniformLocation | null;
+    u_debug: WebGLUniformLocation | null;
   };
   upscaleUniforms: {
     u_texture: WebGLUniformLocation | null;
     u_resolution: WebGLUniformLocation | null;
+    u_debugLines: WebGLUniformLocation | null;
+  };
+  glowUniforms: {
+    u_texture: WebGLUniformLocation | null;
+    u_resolution: WebGLUniformLocation | null;
+    u_opacity: WebGLUniformLocation | null;
+    u_brightness: WebGLUniformLocation | null;
+    u_blurRadius: WebGLUniformLocation | null;
   };
   // State
   metaballs: LavaMetaball[];
@@ -229,6 +263,85 @@ export interface ShaderContext {
 // Shorthand color references from config
 const CYAN = CONFIG.colors.cyan;
 const PINK = CONFIG.colors.pink;
+
+/**
+ * Check if framebuffer is complete and ready for rendering
+ * Returns true if complete, logs error and returns false otherwise
+ */
+function checkFramebufferComplete(gl: WebGL2RenderingContext, name: string): boolean {
+  const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+  if (status !== gl.FRAMEBUFFER_COMPLETE) {
+    const statusNames: Record<number, string> = {
+      [gl.FRAMEBUFFER_INCOMPLETE_ATTACHMENT]: 'INCOMPLETE_ATTACHMENT',
+      [gl.FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT]: 'INCOMPLETE_MISSING_ATTACHMENT',
+      [gl.FRAMEBUFFER_UNSUPPORTED]: 'UNSUPPORTED',
+    };
+    console.error(`[Shader] Framebuffer '${name}' incomplete: ${statusNames[status] || status}`);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Detect if the current device is mobile
+ */
+function isMobileDevice(): boolean {
+  return window.innerWidth <= MOBILE_BREAKPOINT ||
+    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+}
+
+/**
+ * Generate triangle strip geometry for thick line rendering
+ * Creates 2 vertices per sample point (top and bottom of line thickness)
+ */
+function generateThickLineVertices(
+  waveformData: Float32Array,
+  width: number,
+  height: number,
+  amplitude: number,
+  positions: Float32Array,
+  normals: Float32Array
+): void {
+  const numSamples = waveformData.length;
+  const centerY = height * 0.5;
+
+  for (let i = 0; i < numSamples; i++) {
+    const x = (i / (numSamples - 1)) * width;
+    const y = centerY + waveformData[i] * height * amplitude;
+
+    // Calculate tangent direction from adjacent samples
+    let dx = 1, dy = 0;
+    if (i > 0 && i < numSamples - 1) {
+      const prevY = centerY + waveformData[i - 1] * height * amplitude;
+      const nextY = centerY + waveformData[i + 1] * height * amplitude;
+      dx = 2 / (numSamples - 1) * width;
+      dy = nextY - prevY;
+    } else if (i === 0 && numSamples > 1) {
+      const nextY = centerY + waveformData[1] * height * amplitude;
+      dy = nextY - y;
+    } else if (i === numSamples - 1 && numSamples > 1) {
+      const prevY = centerY + waveformData[numSamples - 2] * height * amplitude;
+      dy = y - prevY;
+    }
+
+    // Normalize and get perpendicular (normal)
+    const len = Math.sqrt(dx * dx + dy * dy);
+    const nx = len > 0 ? -dy / len : 0;
+    const ny = len > 0 ? dx / len : 1;
+
+    // Two vertices per sample: top (+normal) and bottom (-normal)
+    const idx = i * 4;
+    positions[idx] = x;
+    positions[idx + 1] = y;
+    normals[idx] = nx;
+    normals[idx + 1] = ny;
+
+    positions[idx + 2] = x;
+    positions[idx + 3] = y;
+    normals[idx + 2] = -nx;
+    normals[idx + 3] = -ny;
+  }
+}
 
 // Helper to create program with default vertex shader
 function createParticleProgram(gl: WebGL2RenderingContext, fragmentSource: string): WebGLProgram {
@@ -409,6 +522,14 @@ function createQuasarResources(gl: WebGL2RenderingContext, width: number, height
     bloomUniforms,
     framebuffer,
     texture,
+    // Eased audio reactivity
+    smoothedBass: 0,
+    lastTime: performance.now(),
+    // Beat detection
+    frequencyData: new Uint8Array(2048),
+    energyHistory: [],
+    lastBeatTime: 0,
+    beatBoost: 0,
   };
 }
 
@@ -427,16 +548,24 @@ function createOscilloResources(gl: WebGL2RenderingContext, width: number, heigh
   gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
   gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW);
 
-  // Create line buffer for waveform (dynamic, updated each frame)
-  // Using 512 samples for waveform visualization
+  // Create line buffers for thick line rendering (triangle strip)
+  // Using 512 samples for waveform visualization, 2 vertices per sample
   const numSamples = 512;
+  const lineVertexCount = numSamples * 2;
+
   const lineBuffer = gl.createBuffer();
   if (!lineBuffer) throw new Error('Failed to create oscillo line buffer');
   gl.bindBuffer(gl.ARRAY_BUFFER, lineBuffer);
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(numSamples * 2), gl.DYNAMIC_DRAW);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(lineVertexCount * 2), gl.DYNAMIC_DRAW);
 
-  // Create programs
-  const lineProgram = createProgram(gl, OSCILLO_LINE_VERTEX, OSCILLO_LINE_FRAGMENT);
+  // Normal buffer for thick line rendering
+  const lineNormalBuffer = gl.createBuffer();
+  if (!lineNormalBuffer) throw new Error('Failed to create oscillo line normal buffer');
+  gl.bindBuffer(gl.ARRAY_BUFFER, lineNormalBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(lineVertexCount * 2), gl.DYNAMIC_DRAW);
+
+  // Create programs - use thick line shader for mobile compatibility
+  const lineProgram = createProgram(gl, OSCILLO_THICK_LINE_VERTEX, OSCILLO_LINE_FRAGMENT);
   const trailProgram = createProgram(gl, QUAD_VERTEX, OSCILLO_TRAIL_FRAGMENT);
   const compositeProgram = createProgram(gl, QUAD_VERTEX, OSCILLO_COMPOSITE_FRAGMENT);
 
@@ -445,6 +574,7 @@ function createOscilloResources(gl: WebGL2RenderingContext, width: number, heigh
     u_resolution: gl.getUniformLocation(lineProgram, 'u_resolution'),
     u_color: gl.getUniformLocation(lineProgram, 'u_color'),
     u_glowIntensity: gl.getUniformLocation(lineProgram, 'u_glowIntensity'),
+    u_lineWidth: gl.getUniformLocation(lineProgram, 'u_lineWidth'),
   };
 
   const trailUniforms = {
@@ -480,11 +610,18 @@ function createOscilloResources(gl: WebGL2RenderingContext, width: number, heigh
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   }
 
-  // Attach textures to framebuffers
+  // Attach textures to framebuffers with validation
   gl.bindFramebuffer(gl.FRAMEBUFFER, fbA);
   gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texA, 0);
+  if (!checkFramebufferComplete(gl, 'oscillo-A')) {
+    throw new Error('Oscillo framebuffer A creation failed');
+  }
+
   gl.bindFramebuffer(gl.FRAMEBUFFER, fbB);
   gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texB, 0);
+  if (!checkFramebufferComplete(gl, 'oscillo-B')) {
+    throw new Error('Oscillo framebuffer B creation failed');
+  }
 
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   gl.bindTexture(gl.TEXTURE_2D, null);
@@ -499,20 +636,32 @@ function createOscilloResources(gl: WebGL2RenderingContext, width: number, heigh
   gl.vertexAttribPointer(quadPosLoc, 2, gl.FLOAT, false, 0, 0);
   gl.bindVertexArray(null);
 
-  // Create VAO for line (waveform)
+  // Create VAO for thick line (waveform as triangle strip)
   const lineVao = gl.createVertexArray();
   if (!lineVao) throw new Error('Failed to create oscillo line VAO');
   gl.bindVertexArray(lineVao);
+
+  // Position attribute
   gl.bindBuffer(gl.ARRAY_BUFFER, lineBuffer);
   const linePosLoc = gl.getAttribLocation(lineProgram, 'a_position');
   gl.enableVertexAttribArray(linePosLoc);
   gl.vertexAttribPointer(linePosLoc, 2, gl.FLOAT, false, 0, 0);
+
+  // Normal attribute for line thickness
+  gl.bindBuffer(gl.ARRAY_BUFFER, lineNormalBuffer);
+  const lineNormalLoc = gl.getAttribLocation(lineProgram, 'a_normal');
+  gl.enableVertexAttribArray(lineNormalLoc);
+  gl.vertexAttribPointer(lineNormalLoc, 2, gl.FLOAT, false, 0, 0);
+
   gl.bindVertexArray(null);
 
   // Allocate audio data buffers
   const waveformData = new Float32Array(numSamples);
-  const frequencyData = new Uint8Array(numSamples);
-  const lineVertices = new Float32Array(numSamples * 2);
+  // Use 2048 for frequency data to accommodate any analyser FFT size
+  const frequencyData = new Uint8Array(2048);
+  // Thick line needs 2 vertices per sample, each with x,y
+  const lineVertices = new Float32Array(lineVertexCount * 2);
+  const lineNormals = new Float32Array(lineVertexCount * 2);
 
   return {
     lineProgram,
@@ -525,6 +674,8 @@ function createOscilloResources(gl: WebGL2RenderingContext, width: number, heigh
     quadBuffer,
     lineVao,
     lineBuffer,
+    lineNormalBuffer,
+    lineVertexCount,
     fbA,
     fbB,
     texA,
@@ -533,6 +684,7 @@ function createOscilloResources(gl: WebGL2RenderingContext, width: number, heigh
     waveformData,
     frequencyData,
     lineVertices,
+    lineNormals,
     trailRotation: 0,
     energyHistory: [],
     lastBeatTime: 0,
@@ -542,6 +694,10 @@ function createOscilloResources(gl: WebGL2RenderingContext, width: number, heigh
 // Create lava resources for metaball rendering
 function createLavaResources(gl: WebGL2RenderingContext, width: number, height: number): LavaResources {
   const cfg = CONFIG.lava;
+  const isMobile = isMobileDevice();
+
+  // Use reduced metaball count on mobile for GPU compatibility
+  const maxMetaballs = isMobile ? MOBILE_MAX_METABALLS : cfg.metaballCount;
 
   // Create low-res framebuffer
   const lowResWidth = Math.floor(width * cfg.renderScale);
@@ -563,6 +719,38 @@ function createLavaResources(gl: WebGL2RenderingContext, width: number, height: 
   gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
   gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
 
+  // Validate framebuffer
+  if (!checkFramebufferComplete(gl, 'lava')) {
+    throw new Error('Lava framebuffer creation failed');
+  }
+
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.bindTexture(gl.TEXTURE_2D, null);
+
+  // Create glow framebuffer (even lower res for blur effect)
+  const glowWidth = Math.floor(width * cfg.glowScale);
+  const glowHeight = Math.floor(height * cfg.glowScale);
+
+  const glowFramebuffer = gl.createFramebuffer();
+  if (!glowFramebuffer) throw new Error('Failed to create glow framebuffer');
+
+  const glowTexture = gl.createTexture();
+  if (!glowTexture) throw new Error('Failed to create glow texture');
+
+  gl.bindTexture(gl.TEXTURE_2D, glowTexture);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, glowWidth, glowHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+  gl.bindFramebuffer(gl.FRAMEBUFFER, glowFramebuffer);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, glowTexture, 0);
+
+  if (!checkFramebufferComplete(gl, 'lava-glow')) {
+    throw new Error('Lava glow framebuffer creation failed');
+  }
+
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   gl.bindTexture(gl.TEXTURE_2D, null);
 
@@ -579,9 +767,11 @@ function createLavaResources(gl: WebGL2RenderingContext, width: number, height: 
   gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
   gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW);
 
-  // Create programs
-  const metaballProgram = createProgram(gl, QUAD_VERTEX, LAVA_METABALL_FRAGMENT);
+  // Create programs - use mobile shader on mobile devices
+  const metaballShader = isMobile ? LAVA_METABALL_FRAGMENT_MOBILE : LAVA_METABALL_FRAGMENT;
+  const metaballProgram = createProgram(gl, QUAD_VERTEX, metaballShader);
   const upscaleProgram = createProgram(gl, QUAD_VERTEX, LAVA_UPSCALE_FRAGMENT);
+  const glowProgram = createProgram(gl, QUAD_VERTEX, LAVA_GLOW_FRAGMENT);
 
   // Get uniform locations
   const metaballUniforms = {
@@ -590,14 +780,25 @@ function createLavaResources(gl: WebGL2RenderingContext, width: number, height: 
     u_metaballPositions: gl.getUniformLocation(metaballProgram, 'u_metaballPositions'),
     u_metaballRadii: gl.getUniformLocation(metaballProgram, 'u_metaballRadii'),
     u_metaballColors: gl.getUniformLocation(metaballProgram, 'u_metaballColors'),
+    u_metaballTypes: gl.getUniformLocation(metaballProgram, 'u_metaballTypes'),
     u_threshold: gl.getUniformLocation(metaballProgram, 'u_threshold'),
     u_edgeSharpness: gl.getUniformLocation(metaballProgram, 'u_edgeSharpness'),
     u_glowIntensity: gl.getUniformLocation(metaballProgram, 'u_glowIntensity'),
+    u_debug: gl.getUniformLocation(metaballProgram, 'u_debug'),
   };
 
   const upscaleUniforms = {
     u_texture: gl.getUniformLocation(upscaleProgram, 'u_texture'),
     u_resolution: gl.getUniformLocation(upscaleProgram, 'u_resolution'),
+    u_debugLines: gl.getUniformLocation(upscaleProgram, 'u_debugLines'),
+  };
+
+  const glowUniforms = {
+    u_texture: gl.getUniformLocation(glowProgram, 'u_texture'),
+    u_resolution: gl.getUniformLocation(glowProgram, 'u_resolution'),
+    u_opacity: gl.getUniformLocation(glowProgram, 'u_opacity'),
+    u_brightness: gl.getUniformLocation(glowProgram, 'u_brightness'),
+    u_blurRadius: gl.getUniformLocation(glowProgram, 'u_blurRadius'),
   };
 
   // Create VAO for quad
@@ -610,15 +811,20 @@ function createLavaResources(gl: WebGL2RenderingContext, width: number, height: 
   gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
   gl.bindVertexArray(null);
 
-  // Initialize metaballs
+  // Initialize metaballs (reduced count on mobile)
   const metaballs: LavaMetaball[] = [];
-  for (let i = 0; i < cfg.metaballCount; i++) {
+  for (let i = 0; i < maxMetaballs; i++) {
     const baseRadius = cfg.radiusMin + Math.random() * (cfg.radiusMax - cfg.radiusMin);
+    // Larger blobs move faster (Stokes' law: buoyancy ∝ r³, drag ∝ r²)
+    // Normalize size: 0 = smallest, 1 = largest
+    const normalizedSize = (baseRadius - cfg.radiusMin) / (cfg.radiusMax - cfg.radiusMin);
+    // Speed factor: small = 0.6x, large = 1.4x
+    const sizeFactor = 0.6 + normalizedSize * 0.8;
     metaballs.push({
       x: (Math.random() - 0.5) * 1.5,
-      y: (Math.random() - 0.5) * 2.0,
+      y: -1.1 - Math.random() * 0.2,  // Start at bottom (-1.1 to -1.3)
       vx: (Math.random() - 0.5) * cfg.horizontalDrift * 2,
-      vy: cfg.baseSpeed * (0.8 + Math.random() * 0.4),
+      vy: Math.random() * 0.3,  // Random initial upward velocity (0 to 0.3)
       radius: baseRadius,
       baseRadius,
       phase: Math.random() * Math.PI * 2,
@@ -629,14 +835,21 @@ function createLavaResources(gl: WebGL2RenderingContext, width: number, height: 
   return {
     metaballProgram,
     upscaleProgram,
+    glowProgram,
     framebuffer,
     texture,
     lowResWidth,
     lowResHeight,
+    glowFramebuffer,
+    glowTexture,
+    glowWidth,
+    glowHeight,
     quadVao,
     quadBuffer,
+    smoothedBass: 0,
     metaballUniforms,
     upscaleUniforms,
+    glowUniforms,
     metaballs,
     lastTime: performance.now(),
   };
@@ -772,10 +985,14 @@ export function initShader(canvas: HTMLCanvasElement, style: string): ShaderCont
     trails: createParticleProgram(gl, TRAILS_FRAGMENT),
   };
 
-  // Create particles
+  // Check if this is a fullscreen shader style (no particles needed)
+  const isFullscreenStyle = style === 'quasar' || style === 'oscillo' || style === 'lava';
+
+  // Create particles (empty for fullscreen styles)
   const particles = createParticles(style, canvas.width, canvas.height);
 
   // Create buffers (with null checks for WebGL context loss)
+  // These are only used for particle-based styles, but we create them anyway for consistency
   const positionBuffer = gl.createBuffer();
   const sizeBuffer = gl.createBuffer();
   const colorBuffer = gl.createBuffer();
@@ -784,30 +1001,34 @@ export function initShader(canvas: HTMLCanvasElement, style: string): ShaderCont
   if (!positionBuffer || !sizeBuffer || !colorBuffer || !vao) {
     throw new Error('Failed to create WebGL buffers - context may be lost');
   }
-  gl.bindVertexArray(vao);
 
-  // Setup position attribute
-  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(particles.length * 2), gl.DYNAMIC_DRAW);
-  const posLoc = gl.getAttribLocation(programs[style], 'a_position');
-  gl.enableVertexAttribArray(posLoc);
-  gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+  // Only setup particle attributes for particle-based styles
+  if (!isFullscreenStyle) {
+    gl.bindVertexArray(vao);
 
-  // Setup size attribute
-  gl.bindBuffer(gl.ARRAY_BUFFER, sizeBuffer);
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(particles.length), gl.DYNAMIC_DRAW);
-  const sizeLoc = gl.getAttribLocation(programs[style], 'a_size');
-  gl.enableVertexAttribArray(sizeLoc);
-  gl.vertexAttribPointer(sizeLoc, 1, gl.FLOAT, false, 0, 0);
+    // Setup position attribute
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(particles.length * 2), gl.DYNAMIC_DRAW);
+    const posLoc = gl.getAttribLocation(programs[style], 'a_position');
+    gl.enableVertexAttribArray(posLoc);
+    gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
 
-  // Setup color attribute
-  gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(particles.length * 4), gl.DYNAMIC_DRAW);
-  const colorLoc = gl.getAttribLocation(programs[style], 'a_color');
-  gl.enableVertexAttribArray(colorLoc);
-  gl.vertexAttribPointer(colorLoc, 4, gl.FLOAT, false, 0, 0);
+    // Setup size attribute
+    gl.bindBuffer(gl.ARRAY_BUFFER, sizeBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(particles.length), gl.DYNAMIC_DRAW);
+    const sizeLoc = gl.getAttribLocation(programs[style], 'a_size');
+    gl.enableVertexAttribArray(sizeLoc);
+    gl.vertexAttribPointer(sizeLoc, 1, gl.FLOAT, false, 0, 0);
 
-  gl.bindVertexArray(null);
+    // Setup color attribute
+    gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(particles.length * 4), gl.DYNAMIC_DRAW);
+    const colorLoc = gl.getAttribLocation(programs[style], 'a_color');
+    gl.enableVertexAttribArray(colorLoc);
+    gl.vertexAttribPointer(colorLoc, 4, gl.FLOAT, false, 0, 0);
+
+    gl.bindVertexArray(null);
+  }
 
   // Enable blending
   gl.enable(gl.BLEND);
@@ -815,7 +1036,6 @@ export function initShader(canvas: HTMLCanvasElement, style: string): ShaderCont
 
   // Get uniform locations (for particle-based styles only)
   // Quasar and oscillo have their own uniforms in their respective resources
-  const isFullscreenStyle = style === 'quasar' || style === 'oscillo' || style === 'lava';
   const program = !isFullscreenStyle ? programs[style] : programs['orbs']; // fallback for type safety
   const uniforms = !isFullscreenStyle ? {
     u_resolution: gl.getUniformLocation(program, 'u_resolution'),
@@ -922,6 +1142,48 @@ export function initShader(canvas: HTMLCanvasElement, style: string): ShaderCont
 
         ctx.quasarResources.framebuffer = framebuffer;
         ctx.quasarResources.texture = texture;
+      }
+    }
+
+    // Recreate framebuffers on resize for oscillo
+    if (ctx.currentStyle === 'oscillo' && ctx.oscilloResources) {
+      // Clean up old framebuffers and textures
+      gl.deleteFramebuffer(ctx.oscilloResources.fbA);
+      gl.deleteFramebuffer(ctx.oscilloResources.fbB);
+      gl.deleteTexture(ctx.oscilloResources.texA);
+      gl.deleteTexture(ctx.oscilloResources.texB);
+
+      // Create new framebuffers at new size
+      const fbA = gl.createFramebuffer();
+      const fbB = gl.createFramebuffer();
+      const texA = gl.createTexture();
+      const texB = gl.createTexture();
+
+      if (fbA && fbB && texA && texB) {
+        // Setup textures
+        for (const tex of [texA, texB]) {
+          gl.bindTexture(gl.TEXTURE_2D, tex);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, canvas.width, canvas.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        }
+
+        // Attach textures to framebuffers
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fbA);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texA, 0);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fbB);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texB, 0);
+
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.bindTexture(gl.TEXTURE_2D, null);
+
+        ctx.oscilloResources.fbA = fbA;
+        ctx.oscilloResources.fbB = fbB;
+        ctx.oscilloResources.texA = texA;
+        ctx.oscilloResources.texB = texB;
+        ctx.oscilloResources.current = 'A';
       }
     }
 
@@ -1110,6 +1372,47 @@ function renderTrails(ctx: ShaderContext, time: number): void {
   trailFramebuffers.current = current === 'A' ? 'B' : 'A';
 }
 
+// Beat detection for quasar (same pattern as oscillo)
+function detectQuasarBeat(analyser: AnalyserNode, resources: QuasarResources, now: number): boolean {
+  const cfg = CONFIG.quasar;
+
+  // Get frequency data for energy calculation
+  analyser.getByteFrequencyData(resources.frequencyData);
+
+  // Calculate bass energy using bins 1-20 for bass drum detection
+  let energy = 0;
+  const bassEndBin = Math.min(20, resources.frequencyData.length - 1);
+  for (let i = 1; i <= bassEndBin; i++) {
+    // Weight lower frequencies more heavily (kick drum lives in bins 3-8)
+    const weight = i <= 8 ? 2.0 : 1.0;
+    energy += resources.frequencyData[i] * resources.frequencyData[i] * weight;
+  }
+  energy /= bassEndBin;
+
+  // Update history (keep ~1 second of history at 60fps)
+  resources.energyHistory.push(energy);
+  if (resources.energyHistory.length > 60) {
+    resources.energyHistory.shift();
+  }
+
+  // Need enough history for comparison
+  if (resources.energyHistory.length < 15) return false;
+
+  // Calculate average for adaptive threshold
+  const avg = resources.energyHistory.reduce((a, b) => a + b, 0) / resources.energyHistory.length;
+
+  // Check if current energy is a significant spike above average
+  const isBeat = energy > avg * cfg.beatThreshold && energy > cfg.energyCutoff;
+  const timeSince = now - resources.lastBeatTime;
+
+  if (isBeat && timeSince > cfg.beatMinInterval) {
+    resources.lastBeatTime = now;
+    return true;
+  }
+
+  return false;
+}
+
 // Render quasar fullscreen shader with bloom post-processing
 function renderQuasar(ctx: ShaderContext, time: number): void {
   const { gl, canvas, lastAudio, quasarResources } = ctx;
@@ -1117,6 +1420,25 @@ function renderQuasar(ctx: ShaderContext, time: number): void {
   if (!quasarResources) return;
 
   const cfg = CONFIG.quasar;
+  const now = performance.now();
+  const deltaTime = (now - quasarResources.lastTime) / 1000;
+  quasarResources.lastTime = now;
+
+  // Ease bass value for smooth reactivity (exponential smoothing - like lava)
+  const easeAmount = 1 - Math.exp(-cfg.bassEaseSpeed * deltaTime);
+  quasarResources.smoothedBass += (lastAudio.bass - quasarResources.smoothedBass) * easeAmount;
+
+  // Beat detection - add impulse boost on beat
+  const analyser = window.__scopeAnalyser;
+  if (analyser && detectQuasarBeat(analyser, quasarResources, now)) {
+    quasarResources.beatBoost = cfg.beatBoost;
+  }
+
+  // Decay beat boost over time
+  quasarResources.beatBoost *= cfg.beatDecay;
+
+  // Combined bass value: smoothed bass + beat boost
+  const effectiveBass = quasarResources.smoothedBass + quasarResources.beatBoost;
 
   // Step 1: Render quasar to framebuffer
   gl.bindFramebuffer(gl.FRAMEBUFFER, quasarResources.framebuffer);
@@ -1139,7 +1461,7 @@ function renderQuasar(ctx: ShaderContext, time: number): void {
   gl.uniform1f(u.u_glowIntensity, cfg.glowIntensity);
   gl.uniform1f(u.u_dotSize, cfg.dotSize);
   gl.uniform1f(u.u_bassReactivity, cfg.bassReactivity);
-  gl.uniform1f(u.u_bass, lastAudio.bass);
+  gl.uniform1f(u.u_bass, effectiveBass);
 
   // Draw quasar to framebuffer
   gl.bindVertexArray(quasarResources.vao);
@@ -1180,25 +1502,34 @@ function detectOscilloBeat(analyser: AnalyserNode, resources: OscilloResources, 
   // Get frequency data for energy calculation
   analyser.getByteFrequencyData(resources.frequencyData);
 
-  // Calculate bass energy (bins 1-10, ~20-200Hz)
+  // Calculate bass energy using more bins for better bass drum detection
+  // Bins depend on sample rate and FFT size: bin_freq = bin_index * (sampleRate / fftSize)
+  // For 44100Hz and 2048 FFT: each bin ≈ 21.5Hz
+  // Bins 1-20 cover roughly 20-430Hz (kick drum fundamental is typically 60-100Hz)
   let energy = 0;
-  for (let i = 1; i <= 10; i++) {
-    energy += resources.frequencyData[i] * resources.frequencyData[i];
+  const bassEndBin = Math.min(20, resources.frequencyData.length - 1);
+  for (let i = 1; i <= bassEndBin; i++) {
+    // Weight lower frequencies more heavily (kick drum lives in bins 3-8)
+    const weight = i <= 8 ? 2.0 : 1.0;
+    energy += resources.frequencyData[i] * resources.frequencyData[i] * weight;
   }
-  energy /= 10;
+  energy /= bassEndBin;
 
-  // Update history
+  // Update history (keep ~1 second of history at 60fps)
   resources.energyHistory.push(energy);
-  if (resources.energyHistory.length > 43) {
+  if (resources.energyHistory.length > 60) {
     resources.energyHistory.shift();
   }
 
   // Need enough history for comparison
-  if (resources.energyHistory.length < 10) return false;
+  if (resources.energyHistory.length < 15) return false;
 
-  // Compare to average
+  // Calculate average and variance for adaptive threshold
   const avg = resources.energyHistory.reduce((a, b) => a + b, 0) / resources.energyHistory.length;
-  const isBeat = energy > avg * cfg.beatThreshold;
+
+  // Check if current energy is a significant spike above average
+  // energyCutoff prevents triggering on quiet passages
+  const isBeat = energy > avg * cfg.beatThreshold && energy > cfg.energyCutoff;
   const timeSince = now - resources.lastBeatTime;
 
   if (isBeat && timeSince > cfg.beatMinInterval) {
@@ -1234,7 +1565,12 @@ function renderOscillo(ctx: ShaderContext, time: number): void {
     // Beat detection - add rotation impulse on each beat
     if (detectOscilloBeat(analyser, oscilloResources, now)) {
       const direction = Math.random() > 0.5 ? 1 : -1;
-      oscilloResources.trailRotation += direction * cfg.rotationImpulse;
+      // Divide by 100 for friendlier config values
+      const impulse = cfg.rotationImpulse / 100;
+      const maxRot = cfg.maxRotation / 100;
+      oscilloResources.trailRotation += direction * impulse;
+      // Clamp rotation to prevent endless spinning
+      oscilloResources.trailRotation = Math.max(-maxRot, Math.min(maxRot, oscilloResources.trailRotation));
     }
   } else {
     // No analyser - generate a sine wave for visual feedback
@@ -1247,24 +1583,34 @@ function renderOscillo(ctx: ShaderContext, time: number): void {
   oscilloResources.trailRotation *= cfg.rotationDecay;
 
   // Calculate color based on time - ping-pong between magenta and cyan
-  const colorPhase = Math.sin(time * Math.PI * cfg.colorCycleSpeed) * 0.5 + 0.5;
+  // Use a sharper transition to avoid desaturated white in the middle
+  const rawPhase = Math.sin(time * Math.PI * cfg.colorCycleSpeed) * 0.5 + 0.5;
+  // Smoothstep for sharper transition: t² * (3 - 2t)
+  const sharpPhase = rawPhase * rawPhase * (3 - 2 * rawPhase);
+  // Apply again for even sharper snap between colors
+  const colorPhase = sharpPhase * sharpPhase * (3 - 2 * sharpPhase);
   // Magenta: (1.0, 0.0, 1.0), Cyan: (0.0, 1.0, 1.0)
-  const colorR = 1.0 - colorPhase;  // 1.0 at magenta, 0.0 at cyan
-  const colorG = colorPhase;         // 0.0 at magenta, 1.0 at cyan
-  const colorB = 1.0;                // Always 1.0
+  const colorR = 1.0 - colorPhase;
+  const colorG = colorPhase;
+  const colorB = 1.0;
 
-  // Convert waveform to vertex positions
-  const numSamples = oscilloResources.waveformData.length;
-  for (let i = 0; i < numSamples; i++) {
-    const x = (i / (numSamples - 1)) * canvas.width;
-    const y = canvas.height / 2 + oscilloResources.waveformData[i] * canvas.height * cfg.waveAmplitude;
-    oscilloResources.lineVertices[i * 2] = x;
-    oscilloResources.lineVertices[i * 2 + 1] = y;
-  }
+  // Generate thick line geometry from waveform (triangle strip for mobile compatibility)
+  generateThickLineVertices(
+    oscilloResources.waveformData,
+    canvas.width,
+    canvas.height,
+    cfg.waveAmplitude,
+    oscilloResources.lineVertices,
+    oscilloResources.lineNormals
+  );
 
-  // Upload line vertices
+  // Upload position data
   gl.bindBuffer(gl.ARRAY_BUFFER, oscilloResources.lineBuffer);
   gl.bufferSubData(gl.ARRAY_BUFFER, 0, oscilloResources.lineVertices);
+
+  // Upload normal data
+  gl.bindBuffer(gl.ARRAY_BUFFER, oscilloResources.lineNormalBuffer);
+  gl.bufferSubData(gl.ARRAY_BUFFER, 0, oscilloResources.lineNormals);
 
   // Determine ping-pong buffers
   const srcTex = oscilloResources.current === 'A' ? oscilloResources.texB : oscilloResources.texA;
@@ -1306,10 +1652,11 @@ function renderOscillo(ctx: ShaderContext, time: number): void {
   gl.uniform2f(l.u_resolution, canvas.width, canvas.height);
   gl.uniform3f(l.u_color, colorR, colorG, colorB); // Ping-pong magenta to cyan
   gl.uniform1f(l.u_glowIntensity, cfg.glowIntensity);
+  gl.uniform1f(l.u_lineWidth, cfg.lineWidth);
 
-  // Draw line strip
+  // Draw thick line as triangle strip (mobile compatible)
   gl.bindVertexArray(oscilloResources.lineVao);
-  gl.drawArrays(gl.LINE_STRIP, 0, numSamples);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, oscilloResources.lineVertexCount);
 
   // Swap buffers
   oscilloResources.current = oscilloResources.current === 'A' ? 'B' : 'A';
@@ -1351,25 +1698,55 @@ function renderLava(ctx: ShaderContext, time: number): void {
   const deltaTime = (now - lavaResources.lastTime) / 1000;
   lavaResources.lastTime = now;
 
-  // Calculate speed multiplier based on bass
-  const speedMultiplier = 1.0 + lastAudio.bass * cfg.bassSpeedBoost;
+  // Ease bass value for smooth reactivity (exponential smoothing)
+  const easeAmount = 1 - Math.exp(-cfg.bassEaseSpeed * deltaTime);
+  lavaResources.smoothedBass += (lastAudio.bass - lavaResources.smoothedBass) * easeAmount;
+
+  // Calculate speed multiplier based on eased bass and global speed
+  const speedMultiplier = cfg.globalSpeed * (1.0 + lavaResources.smoothedBass * cfg.bassSpeedBoost);
 
   // Update metaball physics
   for (const ball of lavaResources.metaballs) {
-    // Apply velocity (scaled by bass)
-    ball.x += ball.vx * deltaTime * speedMultiplier * 0.5;
-    ball.y += ball.vy * deltaTime * speedMultiplier;
+    // Size-based factors: larger blobs have more momentum (Stokes' law)
+    const normalizedSize = (ball.baseRadius - cfg.radiusMin) / (cfg.radiusMax - cfg.radiusMin);
+    const agilityFactor = 0.7 + normalizedSize * 0.6; // small = 0.7x, large = 1.3x
 
-    // Wrap vertically (seamless loop)
-    if (ball.y > 1.5) {
-      ball.y = -1.5;
-      ball.x = (Math.random() - 0.5) * 1.5;
-      ball.vx = (Math.random() - 0.5) * cfg.horizontalDrift * 2;
+    // Thermal zone physics (lava lamp convection)
+    // y ranges from -1.5 (bottom) to 1.5 (top)
+    // Heating zone: bottom 1/3 (y < -0.5)
+    // Cooling zone: top 2/3 (y >= -0.5)
+    const heatingThreshold = -0.5;
+
+    if (ball.y < heatingThreshold) {
+      // Heating zone: accelerate upward (blobs get heated at bottom)
+      const heatAmount = (heatingThreshold - ball.y) / 1.0; // 0 to 1
+      ball.vy += heatAmount * deltaTime * cfg.heatIntensity * agilityFactor;
+      // No forced minimum - let heating gradually reverse direction
+    } else {
+      // Cooling zone: very gradually slow down (reduced intensity for smoother transition)
+      const coolAmount = (ball.y - heatingThreshold) / cfg.coolIntensity;
+      ball.vy -= coolAmount * deltaTime * 0.2 * agilityFactor;
     }
-    if (ball.y < -1.5) {
-      ball.y = 1.5;
+
+    // Clamp vertical velocity
+    ball.vy = Math.max(-0.3, Math.min(0.4, ball.vy));
+
+    // Apply velocity (scaled by bass and size)
+    ball.x += ball.vx * deltaTime * speedMultiplier * agilityFactor * 0.5;
+    ball.y += ball.vy * deltaTime * speedMultiplier * agilityFactor;
+
+    // Wrap vertically - lava lamp cycle (offset from screen edges by ~60px)
+    if (ball.y > 1.35) {
+      // Reached top, wrap to top and start sinking (cooled off)
+      ball.y = 1.25;
       ball.x = (Math.random() - 0.5) * 1.5;
-      ball.vx = (Math.random() - 0.5) * cfg.horizontalDrift * 2;
+      ball.vx = (Math.random() - 0.5) * cfg.horizontalDrift * 2 * agilityFactor;
+      ball.vy = -0.05; // Start sinking slowly
+    }
+    if (ball.y < -1.35) {
+      // Fell to bottom, clamp and let heating push it back up
+      ball.y = -1.25;
+      ball.vy = 0.1; // Give initial upward push
     }
 
     // Bounce horizontally
@@ -1378,20 +1755,21 @@ function renderLava(ctx: ShaderContext, time: number): void {
       ball.x = Math.sign(ball.x) * 1.2;
     }
 
-    // Size pulsing (reacts to bass)
+    // Size pulsing (reacts to eased bass)
     ball.phase += deltaTime * cfg.pulseSpeed * speedMultiplier;
     const pulse = Math.sin(ball.phase) * cfg.pulseAmount;
-    const bassBoost = lastAudio.bass * cfg.bassRadiusBoost;
+    const bassBoost = lavaResources.smoothedBass * cfg.bassRadiusBoost;
     ball.radius = ball.baseRadius + pulse + bassBoost;
 
-    // Gentle damping
-    ball.vx *= 0.995;
+    // Gentle damping (larger blobs have more momentum, less damping)
+    ball.vx *= 0.998 - normalizedSize * 0.008; // small = 0.998, large = 0.99
   }
 
   // Prepare uniform data
   const positions = new Float32Array(lavaResources.metaballs.length * 2);
   const radii = new Float32Array(lavaResources.metaballs.length);
   const colors = new Float32Array(lavaResources.metaballs.length * 3);
+  const types = new Int32Array(lavaResources.metaballs.length);
 
   for (let i = 0; i < lavaResources.metaballs.length; i++) {
     const ball = lavaResources.metaballs[i];
@@ -1403,10 +1781,12 @@ function renderLava(ctx: ShaderContext, time: number): void {
       colors[i * 3] = 1.0;
       colors[i * 3 + 1] = 0.0;
       colors[i * 3 + 2] = 1.0;
+      types[i] = 0;  // magenta type
     } else {
       colors[i * 3] = 0.0;
       colors[i * 3 + 1] = 1.0;
       colors[i * 3 + 2] = 1.0;
+      types[i] = 1;  // cyan type
     }
   }
 
@@ -1425,14 +1805,37 @@ function renderLava(ctx: ShaderContext, time: number): void {
   gl.uniform2fv(m.u_metaballPositions, positions);
   gl.uniform1fv(m.u_metaballRadii, radii);
   gl.uniform3fv(m.u_metaballColors, colors);
+  gl.uniform1iv(m.u_metaballTypes, types);
   gl.uniform1f(m.u_threshold, cfg.threshold);
   gl.uniform1f(m.u_edgeSharpness, cfg.edgeSharpness);
   gl.uniform1f(m.u_glowIntensity, cfg.glowIntensity);
+  gl.uniform1f(m.u_debug, 0.0);
 
   gl.bindVertexArray(lavaResources.quadVao);
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
-  // PASS 2: Upscale to screen
+  // PASS 1.5: Render metaballs to glow framebuffer (lower res, larger radii for spread)
+  if (cfg.glowEnabled) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, lavaResources.glowFramebuffer);
+    gl.viewport(0, 0, lavaResources.glowWidth, lavaResources.glowHeight);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+
+    // Use spread radii for glow
+    const glowRadii = new Float32Array(radii.length);
+    for (let i = 0; i < radii.length; i++) {
+      glowRadii[i] = radii[i] * cfg.glowSpread;
+    }
+
+    gl.uniform2f(m.u_resolution, lavaResources.glowWidth, lavaResources.glowHeight);
+    gl.uniform1fv(m.u_metaballRadii, glowRadii);
+    gl.uniform1f(m.u_threshold, cfg.threshold * 0.8);  // Lower threshold for softer glow
+    gl.uniform1f(m.u_edgeSharpness, cfg.edgeSharpness * 2.0);  // Softer edges
+
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+
+  // PASS 2: Render to screen
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   gl.viewport(0, 0, canvas.width, canvas.height);
   gl.clearColor(0, 0, 0, 0);
@@ -1441,6 +1844,27 @@ function renderLava(ctx: ShaderContext, time: number): void {
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
+  // PASS 2a: Render glow first (underneath) with ADDITIVE blending
+  if (cfg.glowEnabled) {
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);  // Additive blending - adds light
+
+    gl.useProgram(lavaResources.glowProgram);
+
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, lavaResources.glowTexture);
+
+    const g = lavaResources.glowUniforms;
+    gl.uniform1i(g.u_texture, 0);
+    gl.uniform2f(g.u_resolution, lavaResources.glowWidth, lavaResources.glowHeight);
+    gl.uniform1f(g.u_opacity, cfg.glowOpacity);
+    gl.uniform1f(g.u_brightness, cfg.glowBrightness);
+    gl.uniform1f(g.u_blurRadius, cfg.glowBlurRadius);
+
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+
+  // PASS 2b: Render main metaballs on top with normal alpha blending
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   gl.useProgram(lavaResources.upscaleProgram);
 
   gl.activeTexture(gl.TEXTURE0);
@@ -1449,6 +1873,7 @@ function renderLava(ctx: ShaderContext, time: number): void {
   const u = lavaResources.upscaleUniforms;
   gl.uniform1i(u.u_texture, 0);
   gl.uniform2f(u.u_resolution, canvas.width, canvas.height);
+  gl.uniform1f(u.u_debugLines, 0.0);
 
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   gl.bindVertexArray(null);
@@ -1631,6 +2056,7 @@ export function setShaderStyle(ctx: ShaderContext, style: string): void {
     gl.deleteVertexArray(ctx.oscilloResources.lineVao);
     gl.deleteBuffer(ctx.oscilloResources.quadBuffer);
     gl.deleteBuffer(ctx.oscilloResources.lineBuffer);
+    gl.deleteBuffer(ctx.oscilloResources.lineNormalBuffer);
     gl.deleteFramebuffer(ctx.oscilloResources.fbA);
     gl.deleteFramebuffer(ctx.oscilloResources.fbB);
     gl.deleteTexture(ctx.oscilloResources.texA);
@@ -1792,6 +2218,7 @@ export function cleanupShader(ctx: ShaderContext): void {
     gl.deleteVertexArray(ctx.oscilloResources.lineVao);
     gl.deleteBuffer(ctx.oscilloResources.quadBuffer);
     gl.deleteBuffer(ctx.oscilloResources.lineBuffer);
+    gl.deleteBuffer(ctx.oscilloResources.lineNormalBuffer);
     gl.deleteFramebuffer(ctx.oscilloResources.fbA);
     gl.deleteFramebuffer(ctx.oscilloResources.fbB);
     gl.deleteTexture(ctx.oscilloResources.texA);

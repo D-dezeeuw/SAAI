@@ -22,9 +22,35 @@ import type { VizStyle } from './types';
 declare function samples(source: string): Promise<void>;
 
 /**
+ * Initialize CSS custom properties from appConfig colors
+ * This allows CSS to use theme colors defined in TypeScript
+ */
+function initColors(): void {
+  const { colors } = APP_CONFIG;
+  const root = document.documentElement;
+
+  // Primary theme colors
+  root.style.setProperty('--color-primary', colors.primary.base);
+  root.style.setProperty('--color-primary-light', colors.primary.light);
+  root.style.setProperty('--color-primary-dark', colors.primary.dark);
+
+  root.style.setProperty('--color-secondary', colors.secondary.base);
+  root.style.setProperty('--color-secondary-light', colors.secondary.light);
+  root.style.setProperty('--color-secondary-dark', colors.secondary.dark);
+
+  root.style.setProperty('--color-tertiary', colors.tertiary.base);
+  root.style.setProperty('--color-tertiary-light', colors.tertiary.light);
+  root.style.setProperty('--color-tertiary-lighter', colors.tertiary.lighter);
+  root.style.setProperty('--color-tertiary-dark', colors.tertiary.dark);
+}
+
+/**
  * Initialize the entire application
  */
 export function initApp(): void {
+  // Initialize CSS custom properties from config
+  initColors();
+
   // Make slider functions available globally for evaluated code
   window.sliderWithID = sliderWithID;
   window.slider = slider;
@@ -55,6 +81,20 @@ export function initApp(): void {
   dom.vizButtons.forEach(btn => {
     btn.classList.toggle('active', btn.dataset.viz === APP_CONFIG.defaultBackgroundEffect);
   });
+
+  // Set default panel visibility from config
+  dom.generatePanel.classList.toggle('hidden', !APP_CONFIG.generatePanelVisible);
+  dom.aiBtn.classList.toggle('active', APP_CONFIG.generatePanelVisible);
+  dom.codeSection.classList.toggle('hidden', !APP_CONFIG.codeSectionVisible);
+  dom.codeBtn.classList.toggle('active', APP_CONFIG.codeSectionVisible);
+  dom.alterSection.classList.toggle('hidden', !APP_CONFIG.alterSectionVisible);
+  dom.alterToggleBtn.classList.toggle('active', APP_CONFIG.alterSectionVisible);
+
+  // Set initial only-alter class
+  const isOnlyAlter = !APP_CONFIG.generatePanelVisible &&
+                      !APP_CONFIG.codeSectionVisible &&
+                      APP_CONFIG.alterSectionVisible;
+  document.body.classList.toggle('only-alter', isOnlyAlter);
 
   // Initialize CodeMirror editor (playbackMgr referenced via closure)
   let playbackMgr: ReturnType<typeof createPlaybackManager>;
@@ -140,9 +180,17 @@ export function initApp(): void {
     setCode: (code: string) => setCode(editor, code),
     getLastBankName: () => lastBankName,
     setLastBankName: (name: string) => { lastBankName = name; },
-    customScope: playbackMgr.getCustomScope() ?? undefined,
-    customSpectrum: playbackMgr.getCustomSpectrum() ?? undefined,
+    getCustomScope: () => playbackMgr.getCustomScope(),
+    getCustomSpectrum: () => playbackMgr.getCustomSpectrum(),
+    initialPanelState: {
+      generatePanelVisible: APP_CONFIG.generatePanelVisible,
+      codeSectionVisible: APP_CONFIG.codeSectionVisible,
+      alterSectionVisible: APP_CONFIG.alterSectionVisible,
+    },
   });
+
+  // Sync panel state (alter play button visibility + only-alter body class)
+  uiMgr.updatePanelState();
 
   // Initialize AI Manager
   const aiMgr = createAIManager({
@@ -270,7 +318,6 @@ function bindEventListeners(
 
   // Local state for viz style changes (closure captures initial value)
   let vizStyle = currentVizStyle;
-  let audioViz = audioVizEnabled;
 
   dom.vizButtons.forEach(btn => {
     btn.addEventListener('click', (e) => {
@@ -285,12 +332,9 @@ function bindEventListeners(
     });
   });
 
-  dom.audioVizBtn.addEventListener('click', () => {
-    audioViz = !audioViz;
-    dom.audioVizBtn.classList.toggle('active', audioViz);
-    dom.spectrumCanvas.classList.toggle('hidden', !audioViz);
-    dom.scopeCanvas.classList.toggle('hidden', !audioViz);
-    dom.pianorollCanvas.classList.toggle('hidden', !audioViz);
+  dom.audioVizBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    uiMgr.toggleAudioVisualizers();
   });
 
   // Keyboard shortcuts

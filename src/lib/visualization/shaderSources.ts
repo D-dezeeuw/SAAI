@@ -379,6 +379,7 @@ void main() {
 // ============================================================================
 
 // Vertex shader for oscilloscope line (waveform data as vertices)
+// NOTE: Original GL_LINE_STRIP version - kept for reference but not used
 export const OSCILLO_LINE_VERTEX = `#version 300 es
 in vec2 a_position;
 
@@ -391,9 +392,29 @@ void main() {
   gl_Position = vec4(clipPos, 0.0, 1.0);
 }`;
 
+// Thick line vertex shader for mobile-compatible triangle strip rendering
+// Each vertex has a position and normal offset for line thickness
+export const OSCILLO_THICK_LINE_VERTEX = `#version 300 es
+in vec2 a_position;
+in vec2 a_normal;
+
+uniform vec2 u_resolution;
+uniform float u_lineWidth;
+
+void main() {
+  // Offset position perpendicular to line direction by half line width
+  vec2 offset = a_normal * u_lineWidth * 0.5;
+  vec2 pos = a_position + offset;
+
+  // Convert pixel position to clip space
+  vec2 clipPos = (pos / u_resolution) * 2.0 - 1.0;
+  clipPos.y *= -1.0;
+  gl_Position = vec4(clipPos, 0.0, 1.0);
+}`;
+
 // Fragment shader for oscilloscope line (neon glow color)
 export const OSCILLO_LINE_FRAGMENT = `#version 300 es
-precision highp float;
+precision mediump float;
 
 uniform vec3 u_color;
 uniform float u_glowIntensity;
@@ -406,7 +427,7 @@ void main() {
 
 // Fragment shader for trail accumulation with zoom and rotation
 export const OSCILLO_TRAIL_FRAGMENT = `#version 300 es
-precision highp float;
+precision mediump float;
 
 uniform sampler2D u_previousFrame;
 uniform vec2 u_resolution;
@@ -451,7 +472,7 @@ void main() {
 
 // Fragment shader for final composite to screen (with optional glow)
 export const OSCILLO_COMPOSITE_FRAGMENT = `#version 300 es
-precision highp float;
+precision mediump float;
 
 uniform sampler2D u_texture;
 uniform vec2 u_resolution;
@@ -503,19 +524,23 @@ void main() {
 // ============================================================================
 
 // Fragment shader for metaball rendering (low resolution)
+// Two-color system: metaballs only merge with same color type
+// Overlapping different colors create subtractive dark regions
 export const LAVA_METABALL_FRAGMENT = `#version 300 es
 precision mediump float;
 
-#define MAX_METABALLS 15
+#define MAX_METABALLS 80
 
 uniform vec2 u_resolution;
 uniform int u_numMetaballs;
 uniform vec2 u_metaballPositions[MAX_METABALLS];
 uniform float u_metaballRadii[MAX_METABALLS];
 uniform vec3 u_metaballColors[MAX_METABALLS];
+uniform int u_metaballTypes[MAX_METABALLS];  // 0 = magenta, 1 = cyan
 uniform float u_threshold;
 uniform float u_edgeSharpness;
 uniform float u_glowIntensity;
+uniform float u_debug;  // 1.0 to show debug dots at metaball centers
 
 out vec4 fragColor;
 
@@ -533,10 +558,13 @@ void main() {
   // Correct aspect ratio
   uv.x *= u_resolution.x / u_resolution.y;
 
-  vec3 colorAccum = vec3(0.0);
-  float influenceAccum = 0.0;
+  // Separate influence accumulation for each color type
+  float magentaInfluence = 0.0;
+  float cyanInfluence = 0.0;
+  vec3 magentaColor = vec3(0.0);
+  vec3 cyanColor = vec3(0.0);
 
-  // Accumulate all metaball influences
+  // Accumulate influences per color type (same colors merge, different don't)
   for (int i = 0; i < MAX_METABALLS; i++) {
     if (i >= u_numMetaballs) break;
 
@@ -546,30 +574,81 @@ void main() {
       u_metaballRadii[i]
     );
 
-    // Weight color by influence
-    colorAccum += u_metaballColors[i] * influence;
-    influenceAccum += influence;
+    if (u_metaballTypes[i] == 0) {
+      magentaInfluence += influence;
+      magentaColor += u_metaballColors[i] * influence;
+    } else {
+      cyanInfluence += influence;
+      cyanColor += u_metaballColors[i] * influence;
+    }
   }
 
-  // Apply threshold - creates the "blob" boundary
-  if (influenceAccum > u_threshold) {
-    // Normalize color by total influence
-    vec3 finalColor = colorAccum / influenceAccum;
+  // Normalize colors by their type's influence
+  if (magentaInfluence > 0.001) magentaColor /= magentaInfluence;
+  if (cyanInfluence > 0.001) cyanColor /= cyanInfluence;
 
-    // Sharp edge with configurable transition width
-    float edge = smoothstep(u_threshold, u_threshold + u_edgeSharpness, influenceAccum);
+  // Check if each type passes threshold (sharp cutoff for high contrast)
+  bool magentaVisible = magentaInfluence > u_threshold;
+  bool cyanVisible = cyanInfluence > u_threshold;
 
-    // Add subtle glow at the edges
-    float glow = smoothstep(u_threshold, u_threshold + u_edgeSharpness * 2.0, influenceAccum);
-    finalColor += vec3(glow * u_glowIntensity);
-
-    // Clamp to prevent oversaturation
-    finalColor = min(finalColor, vec3(1.2));
-
-    fragColor = vec4(finalColor, edge);
-  } else {
-    // Transparent background
+  if (!magentaVisible && !cyanVisible) {
+    // Nothing visible - transparent background
     fragColor = vec4(0.0, 0.0, 0.0, 0.0);
+    return;
+  }
+
+  vec3 finalColor;
+  float alpha;
+
+  // Sharp edge calculation - very tight transition for crisp borders
+  float sharpness = u_edgeSharpness * 0.3; // Tighter edge
+
+  if (magentaVisible && cyanVisible) {
+    // OVERLAP: Difference blending - creates vibrant complementary colors
+    float magentaEdge = smoothstep(u_threshold, u_threshold + sharpness, magentaInfluence);
+    float cyanEdge = smoothstep(u_threshold, u_threshold + sharpness, cyanInfluence);
+
+    float overlapStrength = min(magentaEdge, cyanEdge);
+
+    // Mix the two colors based on relative strength
+    float magentaDominance = magentaInfluence / (magentaInfluence + cyanInfluence);
+    vec3 mixedColor = mix(cyanColor, magentaColor, magentaDominance);
+
+    // Difference blend: creates vibrant yellow/green where magenta meets cyan
+    vec3 diffColor = abs(magentaColor - cyanColor);
+    finalColor = mix(mixedColor, diffColor, overlapStrength);
+
+    alpha = max(magentaEdge, cyanEdge);
+  } else if (magentaVisible) {
+    // Only magenta - sharp solid blob
+    float edge = smoothstep(u_threshold, u_threshold + sharpness, magentaInfluence);
+    finalColor = magentaColor;
+    alpha = edge;
+  } else {
+    // Only cyan - sharp solid blob
+    float edge = smoothstep(u_threshold, u_threshold + sharpness, cyanInfluence);
+    finalColor = cyanColor;
+    alpha = edge;
+  }
+
+  // Subtle inner glow for depth (reduced intensity for cleaner look)
+  float innerGlow = u_glowIntensity * 0.3;
+  finalColor = finalColor * (1.0 + innerGlow);
+
+  // Clamp to prevent oversaturation
+  finalColor = min(finalColor, vec3(1.0));
+
+  fragColor = vec4(finalColor, alpha);
+
+  // Debug: render white dots at metaball centers
+  if (u_debug > 0.5) {
+    for (int i = 0; i < MAX_METABALLS; i++) {
+      if (i >= u_numMetaballs) break;
+      float dist = length(uv - u_metaballPositions[i]);
+      if (dist < 0.02) {
+        fragColor = vec4(1.0, 1.0, 1.0, 1.0);  // White dot
+      }
+    }
   }
 }`;
 
@@ -579,12 +658,174 @@ precision mediump float;
 
 uniform sampler2D u_texture;
 uniform vec2 u_resolution;
+uniform float u_debugLines;  // 1.0 to show debug lines, 0.0 to hide
 
 in vec2 v_texCoord;
 out vec4 fragColor;
 
 void main() {
   vec4 color = texture(u_texture, v_texCoord);
+
+  // Debug lines showing thermal zones
+  // Physics y range: -1.5 to 1.5 (with -1 to 1 visible on screen)
+  // texCoord.y = (physics_y + 1) / 2  (for visible range -1 to 1)
+  if (u_debugLines > 0.5) {
+    float lineWidth = 3.0 / u_resolution.y;
+
+    // Red line at screen bottom (physics y = -1.0, texCoord = 0.0)
+    if (abs(v_texCoord.y - 0.0) < lineWidth) {
+      color = vec4(1.0, 0.0, 0.0, 1.0);
+    }
+
+    // Green line at heating threshold (physics y = -0.5, texCoord = 0.25)
+    // Heating zone is BELOW this line (y < -0.5)
+    float heatingY = 0.25;
+    if (abs(v_texCoord.y - heatingY) < lineWidth) {
+      color = vec4(0.0, 1.0, 0.0, 1.0);
+    }
+
+    // Blue line at screen top (physics y = 1.0, texCoord = 1.0)
+    if (abs(v_texCoord.y - 1.0) < lineWidth) {
+      color = vec4(0.0, 0.0, 1.0, 1.0);
+    }
+  }
+
   fragColor = color;
 }`;
 
+// Mobile version of lava shader with reduced metaball count for GPU compatibility
+// Same two-color system as desktop version
+export const LAVA_METABALL_FRAGMENT_MOBILE = `#version 300 es
+precision mediump float;
+
+#define MAX_METABALLS 80
+
+uniform vec2 u_resolution;
+uniform int u_numMetaballs;
+uniform vec2 u_metaballPositions[MAX_METABALLS];
+uniform float u_metaballRadii[MAX_METABALLS];
+uniform vec3 u_metaballColors[MAX_METABALLS];
+uniform int u_metaballTypes[MAX_METABALLS];  // 0 = magenta, 1 = cyan
+uniform float u_threshold;
+uniform float u_edgeSharpness;
+uniform float u_glowIntensity;
+uniform float u_debug;  // 1.0 to show debug dots at metaball centers
+
+out vec4 fragColor;
+
+float metaballInfluence(vec2 point, vec2 center, float radius) {
+  vec2 diff = point - center;
+  float distSq = dot(diff, diff);
+  return (radius * radius) / (distSq + 0.0001);
+}
+
+void main() {
+  vec2 uv = (gl_FragCoord.xy / u_resolution) * 2.0 - 1.0;
+  uv.x *= u_resolution.x / u_resolution.y;
+
+  // Separate influence per color type
+  float magentaInfluence = 0.0;
+  float cyanInfluence = 0.0;
+  vec3 magentaColor = vec3(0.0);
+  vec3 cyanColor = vec3(0.0);
+
+  for (int i = 0; i < MAX_METABALLS; i++) {
+    if (i >= u_numMetaballs) break;
+    float influence = metaballInfluence(uv, u_metaballPositions[i], u_metaballRadii[i]);
+
+    if (u_metaballTypes[i] == 0) {
+      magentaInfluence += influence;
+      magentaColor += u_metaballColors[i] * influence;
+    } else {
+      cyanInfluence += influence;
+      cyanColor += u_metaballColors[i] * influence;
+    }
+  }
+
+  if (magentaInfluence > 0.001) magentaColor /= magentaInfluence;
+  if (cyanInfluence > 0.001) cyanColor /= cyanInfluence;
+
+  bool magentaVisible = magentaInfluence > u_threshold;
+  bool cyanVisible = cyanInfluence > u_threshold;
+
+  if (!magentaVisible && !cyanVisible) {
+    fragColor = vec4(0.0, 0.0, 0.0, 0.0);
+    return;
+  }
+
+  vec3 finalColor;
+  float alpha;
+  float sharpness = u_edgeSharpness * 0.3;
+
+  if (magentaVisible && cyanVisible) {
+    float magentaEdge = smoothstep(u_threshold, u_threshold + sharpness, magentaInfluence);
+    float cyanEdge = smoothstep(u_threshold, u_threshold + sharpness, cyanInfluence);
+    float overlapStrength = min(magentaEdge, cyanEdge);
+    float magentaDominance = magentaInfluence / (magentaInfluence + cyanInfluence);
+    vec3 mixedColor = mix(cyanColor, magentaColor, magentaDominance);
+    // Difference blend: vibrant yellow/green where colors meet
+    vec3 diffColor = abs(magentaColor - cyanColor);
+    finalColor = mix(mixedColor, diffColor, overlapStrength);
+    alpha = max(magentaEdge, cyanEdge);
+  } else if (magentaVisible) {
+    float edge = smoothstep(u_threshold, u_threshold + sharpness, magentaInfluence);
+    finalColor = magentaColor;
+    alpha = edge;
+  } else {
+    float edge = smoothstep(u_threshold, u_threshold + sharpness, cyanInfluence);
+    finalColor = cyanColor;
+    alpha = edge;
+  }
+
+  finalColor = finalColor * (1.0 + u_glowIntensity * 0.3);
+  finalColor = min(finalColor, vec3(1.0));
+  fragColor = vec4(finalColor, alpha);
+
+  // Debug: render white dots at metaball centers
+  if (u_debug > 0.5) {
+    for (int i = 0; i < MAX_METABALLS; i++) {
+      if (i >= u_numMetaballs) break;
+      float dist = length(uv - u_metaballPositions[i]);
+      if (dist < 0.02) {
+        fragColor = vec4(1.0, 1.0, 1.0, 1.0);  // White dot
+      }
+    }
+  }
+}`;
+
+// Fragment shader for glow pass (Gaussian blur underneath metaballs)
+export const LAVA_GLOW_FRAGMENT = `#version 300 es
+precision mediump float;
+
+uniform sampler2D u_texture;
+uniform vec2 u_resolution;
+uniform float u_opacity;
+uniform float u_brightness;
+uniform float u_blurRadius;
+
+in vec2 v_texCoord;
+out vec4 fragColor;
+
+void main() {
+  vec2 texelSize = 1.0 / u_resolution;
+  vec4 color = vec4(0.0);
+  float totalWeight = 0.0;
+
+  // 5x5 Gaussian-weighted blur with configurable radius
+  for (int x = -2; x <= 2; x++) {
+    for (int y = -2; y <= 2; y++) {
+      // Gaussian weight based on distance from center
+      float dist = float(x * x + y * y);
+      float weight = exp(-dist / 2.0);
+
+      vec2 offset = vec2(float(x), float(y)) * texelSize * u_blurRadius;
+      color += texture(u_texture, v_texCoord + offset) * weight;
+      totalWeight += weight;
+    }
+  }
+  color /= totalWeight;
+
+  // Apply brightness boost and opacity
+  vec3 boostedColor = color.rgb * u_brightness;
+  fragColor = vec4(boostedColor, color.a * u_opacity);
+}`;

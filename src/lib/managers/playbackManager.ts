@@ -3,7 +3,8 @@
  */
 import type { EditorView } from '@codemirror/view';
 import type { Hap, Widget, StrudelRepl, VizStyle } from '../types';
-import { SCOPE_COLOR, DEBOUNCE_MS, PIANOROLL_QUERY_CYCLES, LOGO_GLOW_MIN, LOGO_GLOW_MAX, LOGO_GLOW_BASE_OPACITY, LOGO_GLOW_OPACITY_FACTOR } from '../config/constants';
+import { DEBOUNCE_MS, PIANOROLL_QUERY_CYCLES, LOGO_GLOW_MIN, LOGO_GLOW_MAX, LOGO_GLOW_BASE_OPACITY, LOGO_GLOW_OPACITY_FACTOR } from '../config/constants';
+import { APP_CONFIG } from '../config/appConfig';
 import { setupCanvas, createScopeCtxProxy } from './canvasManager';
 import { wrapCodeWithAnalyze } from './codeManager';
 import { ensureSamplesLoaded } from './sampleManager';
@@ -86,12 +87,41 @@ export function createPlaybackManager(deps: PlaybackDeps): PlaybackManager {
   let codeChangeTimer: ReturnType<typeof setTimeout> | null = null;
   let customScope: CustomScope | null = null;
   let customSpectrum: CustomSpectrum | null = null;
+  let isUpdatingWidgets = false;  // Flag to prevent widget updates from triggering pattern reload
 
   /**
-   * Initialize Strudel with samples
+   * Initialize Strudel with samples and visualizers
    */
   async function init(): Promise<void> {
     if (isInitialized) return;
+
+    // Initialize custom visualizers early so they're available for uiManager
+    const { isMobile } = getState();
+    if (!isMobile) {
+      if (!customScope) {
+        customScope = new CustomScope(scopeCanvas, {
+          color: APP_CONFIG.colors.secondary.base,
+          thickness: 3,
+          scale: 0.25,
+          pos: 0.5,
+          align: true,
+          glow: true,
+          glowIntensity: 8
+        });
+      }
+      if (!customSpectrum) {
+        customSpectrum = new CustomSpectrum(spectrumCanvas, {
+          color: APP_CONFIG.colors.primary.base,
+          speed: 1,
+          min: -80,
+          max: 0,
+          thickness: 1,
+          glow: true,
+          glowIntensity: 5
+        });
+      }
+    }
+
     try {
       strudelRepl = await strudel.initStrudel({
         prebake: async () => {
@@ -219,6 +249,12 @@ export function createPlaybackManager(deps: PlaybackDeps): PlaybackManager {
 
       editorContainer.classList.remove('error');
 
+      // Re-fetch analyser in case Strudel created a new one
+      const strudelAnalyser = strudel.getAnalyserById('viz');
+      if (strudelAnalyser) {
+        window.__scopeAnalyser = strudelAnalyser;
+      }
+
       const widgets = strudelRepl?.state?.widgets;
       if (widgets && widgets.length > 0) {
         const adjustedWidgets = widgets.map((w: Widget) => ({
@@ -227,8 +263,11 @@ export function createPlaybackManager(deps: PlaybackDeps): PlaybackManager {
           to: w.to - codeOffset,
         }));
         const sliders = adjustedWidgets.filter((w: Widget) => w.type === 'slider');
+        // Set flag to prevent widget updates from triggering handleCodeChange
+        isUpdatingWidgets = true;
         deps.updateSliderWidgets(editor, sliders);
         deps.updateWidgets(editor, adjustedWidgets);
+        isUpdatingWidgets = false;
       }
 
       strudelRepl?.scheduler?.setPattern(result);
@@ -241,9 +280,11 @@ export function createPlaybackManager(deps: PlaybackDeps): PlaybackManager {
 
   /**
    * Handle code changes with debouncing
+   * Skips if we're programmatically updating widgets (to prevent infinite loops)
    */
   function handleCodeChange(): void {
     if (!playing) return;
+    if (isUpdatingWidgets) return;  // Skip if we're updating widgets programmatically
 
     if (codeChangeTimer) {
       clearTimeout(codeChangeTimer);
@@ -321,32 +362,6 @@ export function createPlaybackManager(deps: PlaybackDeps): PlaybackManager {
 
     const { isMobile, currentVizStyle, audioVizEnabled } = getState();
 
-    if (!isMobile) {
-      if (!customScope) {
-        customScope = new CustomScope(scopeCanvas, {
-          color: SCOPE_COLOR,
-          thickness: 3,
-          scale: 0.25,
-          pos: 0.5,
-          align: true,
-          glow: true,
-          glowIntensity: 8
-        });
-      }
-
-      if (!customSpectrum) {
-        customSpectrum = new CustomSpectrum(spectrumCanvas, {
-          color: '#00FFFF',
-          speed: 1,
-          min: -80,
-          max: 0,
-          thickness: 1,
-          glow: true,
-          glowIntensity: 5
-        });
-      }
-    }
-
     if (!window.__shaderCtx && currentVizStyle !== 'none') {
       try {
         window.__shaderCtx = initShader(shaderCanvas, currentVizStyle);
@@ -390,8 +405,11 @@ export function createPlaybackManager(deps: PlaybackDeps): PlaybackManager {
         }));
         const sliders = adjustedWidgets.filter((w: Widget) => w.type === 'slider');
         const blockWidgets = adjustedWidgets.filter((w: Widget) => w.type !== 'slider');
+        // Set flag to prevent widget updates from triggering handleCodeChange
+        isUpdatingWidgets = true;
         if (sliders.length > 0) deps.updateSliderWidgets(editor, sliders);
         if (blockWidgets.length > 0) deps.updateWidgets(editor, blockWidgets);
+        isUpdatingWidgets = false;
       }
 
       startHighlighting();

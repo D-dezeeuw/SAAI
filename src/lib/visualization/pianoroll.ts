@@ -4,6 +4,8 @@
  */
 
 import type { Hap, NoteEvent } from '../types';
+import { APP_CONFIG } from '../config/appConfig';
+import { CONFIG } from '../config/configuration';
 
 // =============================================================================
 // Configuration
@@ -16,10 +18,10 @@ export const PIANOROLL_PLAYHEAD = 0.09;
 export const PIANOROLL_SMEAR = false;
 
 /** Color for active (currently playing) notes */
-export const PIANOROLL_ACTIVE_COLOR = '#00FFFF';
+export const PIANOROLL_ACTIVE_COLOR = APP_CONFIG.colors.primary.base;
 
 /** Color for inactive (upcoming/past) notes */
-export const PIANOROLL_INACTIVE_COLOR = '#155e75';
+export const PIANOROLL_INACTIVE_COLOR = APP_CONFIG.colors.tertiary.dark;
 
 /** Glow intensity for notes */
 export const PIANOROLL_GLOW = 20;
@@ -70,7 +72,7 @@ export function extractNoteEvents(haps: Hap[], now: number): NoteEvent[] {
       midi = noteToMidi(noteVal);
     }
 
-    if (midi === null || midi < 0 || midi > 127) continue;
+    if (midi === null || midi < CONFIG.pianoroll.minMidi || midi > 127) continue;
 
     const start = hap.whole?.begin ?? hap.part?.begin ?? 0;
     const end = hap.whole?.end ?? hap.part?.end ?? start + 0.25;

@@ -3,10 +3,10 @@
  */
 
 import {
-  SCOPE_COLOR,
   SCOPE_GLOW_INTENSITY,
   SCOPE_LINE_WIDTH,
 } from '../config/constants';
+import { APP_CONFIG } from '../config/appConfig';
 import { initShader, cleanupShader, setShaderStyle, setShaderIdle } from '../visualization/shader';
 import type { ShaderContext } from '../visualization/shader';
 import type { CustomScope } from '../visualization/customScope';
@@ -35,7 +35,7 @@ export function createScopeCtxProxy(ctx: CanvasRenderingContext2D): CanvasRender
   return new Proxy(ctx, {
     set(target: CanvasRenderingContext2D, prop: string, value: unknown): boolean {
       if (prop === 'strokeStyle' || prop === 'shadowColor') {
-        value = SCOPE_COLOR;
+        value = APP_CONFIG.colors.secondary.base;
       }
       // Force thinner lines
       if (prop === 'lineWidth') {
@@ -43,7 +43,7 @@ export function createScopeCtxProxy(ctx: CanvasRenderingContext2D): CanvasRender
       }
       // Add glow effect
       if (prop === 'strokeStyle') {
-        target.shadowColor = SCOPE_COLOR;
+        target.shadowColor = APP_CONFIG.colors.secondary.base;
         target.shadowBlur = SCOPE_GLOW_INTENSITY;
       }
       (target as unknown as Record<string, unknown>)[prop] = value;

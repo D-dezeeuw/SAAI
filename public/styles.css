@@ -29,7 +29,7 @@ body {
 .header h1 {
     font-size: 1.5rem;
     margin: 0;
-    background: linear-gradient(90deg, #22d3ee, #ec4899, #22d3ee);
+    background: linear-gradient(90deg, var(--color-primary-light), var(--color-secondary), var(--color-primary-light));
     background-size: 200% 100%;
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -88,7 +88,7 @@ body {
   background: rgba(42, 42, 58, 0.9);
   border-bottom: 1px solid rgba(51, 51, 51, 0.5);
   font-size: 0.75rem;
-  color: #a78bfa;
+  color: var(--color-tertiary-light);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   display: flex;
@@ -123,7 +123,7 @@ body {
   white-space: pre-wrap;
   max-height: 150px;
   overflow-y: auto;
-  color: #c4b5fd;
+  color: var(--color-tertiary-lighter);
 }
 
 .input-group {
@@ -204,7 +204,7 @@ button {
 .generate-panel,
 .code-section {
   transition: opacity 0.2s, max-height 0.3s;
-  max-height: 500px;
+  max-height: calc(100vh - 200px);
   overflow: hidden;
 }
 
@@ -245,11 +245,11 @@ button {
 }
 
 #ai-btn.active {
-  background: #8b5cf6;
+  background: var(--color-tertiary);
 }
 
 #ai-btn.active:hover {
-  background: #7c3aed;
+  background: var(--color-tertiary-dark);
 }
 
 #code-btn.active {
@@ -382,30 +382,14 @@ button {
   margin: 0 0.25rem;
 }
 
-/* Audio visualizer toggle button */
+/* Audio visualizer toggle button (now in dropdown) */
 #audio-viz-btn {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.9rem;
-  padding: 0;
-  background: #6b7280;
-  color: #fff;
-}
-
-#audio-viz-btn:hover {
-  background: #4b5563;
+  /* Inherits dropdown button styles */
 }
 
 #audio-viz-btn.active {
-  background: #06b6d4;
-}
-
-#audio-viz-btn.active:hover {
-  background: #0891b2;
+  background: rgba(6, 182, 212, 0.3);
+  color: var(--color-primary-light);
 }
 
 /* Visualizer selector - in header */
@@ -437,12 +421,12 @@ button {
 }
 
 #viz-btn.active {
-  background: #8b5cf6;
+  background: var(--color-primary);
   color: #fff;
 }
 
 #viz-btn.active:hover {
-  background: #7c3aed;
+  background: var(--color-primary-dark);
 }
 
 .viz-dropdown {
@@ -478,13 +462,19 @@ button {
 }
 
 .viz-dropdown button:hover {
-  background: rgba(139, 92, 246, 0.2);
+  background: rgba(6, 182, 212, 0.2);
   color: #fff;
 }
 
 .viz-dropdown button.active {
-  background: rgba(139, 92, 246, 0.3);
-  color: #a78bfa;
+  background: rgba(6, 182, 212, 0.3);
+  color: var(--color-primary-light);
+}
+
+.viz-dropdown-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 0.25rem 0;
 }
 
 .code-section {
@@ -554,6 +544,24 @@ button {
   pointer-events: none;
 }
 
+/* Only-alter mode: alter section becomes fixed top bar (desktop only) */
+@media (min-width: 769px) {
+  body.only-alter .container {
+    position: unset;
+  }
+
+  body.only-alter .alter-section {
+    position: fixed;
+    top: 0;
+    left: 100px;
+    display: flex;
+    z-index: 1000;
+    margin-top: 0;
+    padding: 7px 24px 7px 7px;
+    width: calc(100% - 363px);
+  }
+}
+
 .alter-play-btn {
   width: 32px;
   height: 32px;
@@ -610,11 +618,11 @@ button {
 }
 
 #alter-toggle-btn.active {
-  background: #8b5cf6;
+  background: var(--color-tertiary);
 }
 
 #alter-toggle-btn.active:hover {
-  background: #7c3aed;
+  background: var(--color-tertiary-dark);
 }
 
 #alter-input {
@@ -629,13 +637,13 @@ button {
 
 #alter-input:focus {
   outline: none;
-  border-color: #8b5cf6;
+  border-color: var(--color-tertiary);
 }
 
 #alter-btn {
   padding: 0.5rem 1rem;
   font-size: 0.875rem;
-  background: #8b5cf6;
+  background: var(--color-tertiary);
   color: #fff;
   border: none;
   border-radius: 4px;
@@ -643,7 +651,7 @@ button {
 }
 
 #alter-btn:hover {
-  background: #7c3aed;
+  background: var(--color-tertiary-dark);
 }
 
 #alter-btn:disabled {
@@ -789,7 +797,7 @@ button {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: #8b5cf6;
+  background: var(--color-tertiary);
   cursor: pointer;
   box-shadow: 0 0 6px rgba(139, 92, 246, 0.5);
 }
@@ -798,7 +806,7 @@ button {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: #8b5cf6;
+  background: var(--color-tertiary);
   cursor: pointer;
   border: none;
   box-shadow: 0 0 6px rgba(139, 92, 246, 0.5);
@@ -938,7 +946,7 @@ button {
   font-family: system-ui, -apple-system, sans-serif;
   font-size: 0.75rem;
   font-weight: 600;
-  color: #22d3ee;
+  color: var(--color-primary-light);
   min-width: 24px;
   text-align: center;
 }
@@ -1024,7 +1032,7 @@ button {
 .token-stat-value {
   display: block;
   font-size: 0.85rem;
-  color: #22d3ee;
+  color: var(--color-primary-light);
   font-family: 'SF Mono', Monaco, 'Courier New', monospace;
   font-weight: 500;
 }
@@ -1194,6 +1202,28 @@ button {
 
   .shortcuts-list {
     display: none;
+  }
+
+  /* Larger touch targets for play/stop buttons on mobile */
+  #play-btn {
+    width: 48px;
+    height: 48px;
+    min-width: 48px;
+    min-height: 48px;
+    font-size: 1.2rem;
+  }
+
+  #code-editor-container #play-btn {
+    bottom: 0.75rem;
+    right: 0.75rem;
+  }
+
+  #stop-btn {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    min-height: 40px;
+    font-size: 1.8rem;
   }
 
 }

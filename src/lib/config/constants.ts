@@ -19,6 +19,9 @@ export const TOAST_FADE_MS = 300;
 /** Code change debounce interval in ms */
 export const DEBOUNCE_MS = 200;
 
+/** Maximum metaballs for mobile devices (reduced for GPU compatibility) */
+export const MOBILE_MAX_METABALLS = 40;
+
 /** Evolution interval in ms (how often auto-evolve triggers) */
 export const EVOLUTION_INTERVAL_MS = 10000;
 
@@ -35,9 +38,7 @@ export const PIANOROLL_QUERY_CYCLES = 4;
 // =============================================================================
 // SCOPE VISUALIZER
 // =============================================================================
-
-/** Scope visualizer color (magenta) */
-export const SCOPE_COLOR = '#FF00FF';
+// Note: SCOPE_COLOR moved to appConfig.ts colors.vizMagenta
 
 /** Scope glow intensity */
 export const SCOPE_GLOW_INTENSITY = 25;

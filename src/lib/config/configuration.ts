@@ -5,12 +5,14 @@
 // Modify these values to customize the visual appearance.
 // ============================================================================
 
+import { APP_CONFIG, hexToRgb01 } from './appConfig';
+
 export const CONFIG = {
   // --- COLORS ---
-  // RGB values from 0-1 (not 0-255)
+  // RGB values from 0-1 (derived from appConfig theme colors)
   colors: {
-    cyan: { r: 0.133, g: 0.827, b: 0.933 },
-    pink: { r: 0.925, g: 0.282, b: 0.600 },
+    cyan: hexToRgb01(APP_CONFIG.colors.primary.base),
+    pink: hexToRgb01(APP_CONFIG.colors.secondary.base),
   },
 
   // --- ORBS STYLE ---
@@ -70,6 +72,13 @@ export const CONFIG = {
     bassReactivity: 1.0,         // How much dots/glow react to bass (1.0 = double, 2.0 = triple)
     bloomRadius: 8.0,            // Bloom blur radius in pixels
     bloomIntensity: 0.6,         // Bloom strength (0.3-1.0 range)
+    // Easing and beat detection
+    bassEaseSpeed: 8.0,          // How fast bass easing responds (higher = faster)
+    beatBoost: 1,              // Extra size boost on beat detection (0-1)
+    beatDecay: 0.92,             // How fast beat boost decays per frame (0.9 = fast, 0.99 = slow)
+    beatThreshold: 2.2,          // Energy spike threshold for beat detection
+    beatMinInterval: 200,        // Minimum ms between beat triggers
+    energyCutoff: 500,           // Minimum energy to trigger beat detection
   },
 
   // --- OSCILLO STYLE ---
@@ -79,30 +88,43 @@ export const CONFIG = {
     waveAmplitude: 0.3,          // Vertical amplitude (0-1 of screen height)
     trailDecay: 0.985,           // Trail persistence (0.95=short, 0.99=long)
     zoomSpeed: 1.01,             // Zoom per frame (1.01 = 1% zoom toward center)
-    rotationImpulse: 0.08,       // Trail rotation per beat (radians, ~4.5 degrees)
-    rotationDecay: 0.9975,       // Trail rotation decay per frame (0.99=fast, 0.999=slow)
+    rotationImpulse: 0.5,           // Rotation per beat (divided by 100, so 8 = 0.08 radians ~4.5°)
+    maxRotation: 5,               // Maximum rotation limit (divided by 100, so 1 = 0.01 radians)
+    rotationDecay: 0.995,       // Trail rotation decay per frame (0.99=fast, 0.999=slow)
     glowIntensity: 1.5,          // Neon glow brightness
-    beatThreshold: 1.4,          // Energy spike threshold for beat detection
-    beatMinInterval: 300,        // Min ms between beat triggers
+    beatThreshold: 1.2,          // Energy spike threshold (1.2 = 20% above average)
+    beatMinInterval: 200,        // Minimum ms between beat triggers
+    energyCutoff: 500,           // Minimum energy to trigger beat detection (lower = more sensitive)
     colorCycleSpeed: 0.15,       // Color cycle speed (full magenta-cyan-magenta per second)
   },
 
   // --- LAVA STYLE ---
   // Metaball lava lamp with flowing blobs
+  // Two-color system: same colors merge, overlaps create vibrant difference blend
   lava: {
-    metaballCount: 10,           // Number of metaballs (8-12 recommended)
-    renderScale: 0.25,           // Low-res render scale (0.25 = 1/4 resolution)
-    threshold: 1.0,              // Metaball threshold (0.8-1.2 range)
-    edgeSharpness: 0.15,         // Edge transition width (smaller = sharper, 0.1-0.4)
-    baseSpeed: 0.2,              // Base vertical flow speed
-    horizontalDrift: 0.08,       // Horizontal movement range
-    radiusMin: 0.12,             // Minimum metaball radius
+    metaballCount: 15,           // Number of metaballs (8-12 recommended)
+    renderScale: 1,              // Render scale (0.75 = 3/4 resolution)
+    threshold: 3,                // Metaball threshold (higher = harder cutoff)
+    edgeSharpness: 0.10,         // Edge transition width (smaller = sharper)
+    globalSpeed: 0.5,            // Global speed multiplier (0.5 = half speed, 2.0 = double speed)
+    horizontalDrift: 0.25,       // Horizontal movement range
+    radiusMin: 0.08,             // Minimum metaball radius
     radiusMax: 0.22,             // Maximum metaball radius
     pulseAmount: 0.02,           // Size pulsing amplitude
     pulseSpeed: 1.5,             // Size pulsing speed
-    glowIntensity: 0.15,         // Glow amount at edges
+    glowIntensity: 0.08,         // Subtle inner glow (reduced for high contrast)
     bassRadiusBoost: 0.15,       // How much bass increases radius
     bassSpeedBoost: 0.3,         // How much bass increases speed
+    bassEaseSpeed: 8.0,          // How fast bass easing responds (higher = faster)
+    coolIntensity: 3.0,          // Cooling zone divisor (higher = gentler cooling)
+    heatIntensity: 1.5,          // Heating zone multiplier (higher = stronger upward push)
+    // Glow effect (rendered underneath metaballs)
+    glowEnabled: true,           // Enable/disable glow pass
+    glowScale: 1.75,             // Glow render scale (lower = more blur, 0.25 = 1/4 res)
+    glowOpacity: 0.8,            // Glow opacity (0-1)
+    glowSpread: 1.0,             // How much larger the glow is vs metaballs
+    glowBrightness: 1.0,         // Color intensity multiplier (1.0 = normal, 2.0 = 2x bright)
+    glowBlurRadius: 12.0,         // Gaussian blur spread in texels (higher = softer glow)
   },
 
   // --- MUSIC REACTIVITY ---
@@ -124,5 +146,11 @@ export const CONFIG = {
     intensity: 0.3,
     bass: 0.1,
     treble: 0.1,
+  },
+
+  // --- PIANOROLL ---
+  // Piano roll visualization settings
+  pianoroll: {
+    minMidi: 48,                   // Minimum MIDI note to display (C3=48, C2=36, 0=show all)
   },
 };

@@ -4,6 +4,7 @@ import { javascript } from '@codemirror/lang-javascript';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { defaultKeymap, historyKeymap, history } from '@codemirror/commands';
 import { sliderPlugin, updateSliderWidgets, widgetPlugin, updateWidgets } from '@strudel/codemirror';
+import { APP_CONFIG } from '../config/appConfig';
 
 // Re-export for use in index.astro
 export { updateSliderWidgets, updateWidgets };
@@ -70,12 +71,12 @@ const strudelTheme = EditorView.theme({
     borderRadius: '5px',
   },
   '.cm-scroller::-webkit-scrollbar-thumb': {
-    background: 'linear-gradient(180deg, #3a3a3a 0%, #3a3a3a 40%, #00d4d4 50%, #3a3a3a 60%, #3a3a3a 100%)',
+    background: `linear-gradient(180deg, #3a3a3a 0%, #3a3a3a 40%, ${APP_CONFIG.colors.primary.base} 50%, #3a3a3a 60%, #3a3a3a 100%)`,
     borderRadius: '5px',
     border: '2px solid #1a1a1a',
   },
   '.cm-scroller::-webkit-scrollbar-thumb:hover': {
-    background: 'linear-gradient(180deg, #4a4a4a 0%, #4a4a4a 40%, #00ffff 50%, #4a4a4a 60%, #4a4a4a 100%)',
+    background: `linear-gradient(180deg, #4a4a4a 0%, #4a4a4a 40%, ${APP_CONFIG.colors.primary.base} 50%, #4a4a4a 60%, #4a4a4a 100%)`,
   },
   '.cm-scroller::-webkit-scrollbar-corner': {
     background: '#1a1a1a',

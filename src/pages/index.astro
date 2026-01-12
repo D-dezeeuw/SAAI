@@ -5,9 +5,9 @@ import Layout from '../layouts/Layout.astro';
 <Layout title="SAAI - Strudel Augmented Artificial Intelligence">
   <!-- Background visualizations (bottom to top: spectrum, scope, pianoroll, shader) -->
   <div class="viz-background">
-    <canvas id="spectrum-canvas"></canvas>
-    <canvas id="scope-canvas"></canvas>
-    <canvas id="pianoroll-canvas"></canvas>
+    <canvas id="spectrum-canvas" class="hidden"></canvas>
+    <canvas id="scope-canvas" class="hidden"></canvas>
+    <canvas id="pianoroll-canvas" class="hidden"></canvas>
     <canvas id="shader-canvas"></canvas>
   </div>
 
@@ -19,17 +19,18 @@ import Layout from '../layouts/Layout.astro';
       <button id="code-btn" title="Code Editor" class="active">&lt;/&gt;</button>
       <button id="alter-toggle-btn" title="Alter Code" class="active">⚙</button>
       <span class="header-divider"></span>
-      <button id="audio-viz-btn" title="Audio Visualizers" class="active">〰</button>
       <div class="viz-selector">
-        <button id="viz-btn" title="Background Effects" class="active">◎</button>
+        <button id="viz-btn" title="Visual Effects" class="active">〰</button>
         <div id="viz-dropdown" class="viz-dropdown hidden">
-          <button data-viz="none">No vis</button>
+          <button data-viz="none">No Background</button>
           <button data-viz="orbs" class="active">Glowing Orbs</button>
           <button data-viz="stars">Stars</button>
           <button data-viz="trails">Flowing Trails</button>
           <button data-viz="quasar">Quasar</button>
           <button data-viz="oscillo">Oscillo</button>
           <button data-viz="lava">Lava Lamp</button>
+          <div class="viz-dropdown-divider"></div>
+          <button id="audio-viz-btn">Audio Visualizers</button>
         </div>
       </div>
       <span class="header-divider"></span>

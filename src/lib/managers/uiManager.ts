@@ -61,8 +61,14 @@ export interface UIManagerDeps {
   setCode: (code: string) => void;
   getLastBankName: () => string;
   setLastBankName: (name: string) => void;
-  customScope?: CustomScope;
-  customSpectrum?: CustomSpectrum;
+  getCustomScope?: () => CustomScope | null;
+  getCustomSpectrum?: () => CustomSpectrum | null;
+  // Initial panel visibility from config
+  initialPanelState?: {
+    generatePanelVisible: boolean;
+    codeSectionVisible: boolean;
+    alterSectionVisible: boolean;
+  };
 }
 
 export interface UIManager {
@@ -79,7 +85,7 @@ export interface UIManager {
   toggleVisualsOnlyMode: () => void;
   handleBankChange: () => void;
   syncAlterPlayBtn: () => void;
-  updateAlterPlayBtnVisibility: () => void;
+  updatePanelState: () => void;
   toggleShortcutsPopup: () => void;
   toggleTokenPopup: () => void;
   closePopupsOnOutsideClick: (e: Event) => void;
@@ -87,13 +93,17 @@ export interface UIManager {
 }
 
 export function createUIManager(deps: UIManagerDeps): UIManager {
-  const { elements } = deps;
+  const { elements, initialPanelState } = deps;
 
-  // Internal state for panel visibility
-  let panelsVisible = true;
-  let savedCodeState = true;
-  let savedGenerateState = true;
-  let savedAlterState = true;
+  // Internal state for panel visibility - use config defaults if provided
+  const initGenerate = initialPanelState?.generatePanelVisible ?? true;
+  const initCode = initialPanelState?.codeSectionVisible ?? true;
+  const initAlter = initialPanelState?.alterSectionVisible ?? true;
+
+  let panelsVisible = initGenerate || initCode || initAlter;
+  let savedCodeState = initCode;
+  let savedGenerateState = initGenerate;
+  let savedAlterState = initAlter;
 
   // State for visuals-only mode
   let visualsOnlyMode = false;
@@ -113,10 +123,17 @@ export function createUIManager(deps: UIManagerDeps): UIManager {
     }, duration);
   }
 
-  function updateAlterPlayBtnVisibility() {
+  function updatePanelState() {
+    const generateHidden = elements.generatePanel.classList.contains('hidden');
     const codeHidden = elements.codeSection.classList.contains('hidden');
     const alterVisible = !elements.alterSection.classList.contains('hidden');
+
+    // Show alter play button when code hidden but alter visible
     elements.alterPlayBtn.classList.toggle('hidden', !(codeHidden && alterVisible));
+
+    // Set only-alter class when only alter section is visible
+    const isOnlyAlter = generateHidden && codeHidden && alterVisible;
+    document.body.classList.toggle('only-alter', isOnlyAlter);
   }
 
   function syncAlterPlayBtn() {
@@ -135,20 +152,21 @@ export function createUIManager(deps: UIManagerDeps): UIManager {
     const isVisible = !elements.generatePanel.classList.contains('hidden');
     elements.generatePanel.classList.toggle('hidden');
     elements.aiBtn.classList.toggle('active', !isVisible);
+    updatePanelState();
   }
 
   function toggleCodeSection() {
     const isVisible = !elements.codeSection.classList.contains('hidden');
     elements.codeSection.classList.toggle('hidden');
     elements.codeBtn.classList.toggle('active', !isVisible);
-    updateAlterPlayBtnVisibility();
+    updatePanelState();
   }
 
   function toggleAlterSection() {
     const isVisible = !elements.alterSection.classList.contains('hidden');
     elements.alterSection.classList.toggle('hidden');
     elements.alterToggleBtn.classList.toggle('active', !isVisible);
-    updateAlterPlayBtnVisibility();
+    updatePanelState();
   }
 
   function toggleContextSection() {
@@ -190,6 +208,7 @@ export function createUIManager(deps: UIManagerDeps): UIManager {
       }
     }
     panelsVisible = !panelsVisible;
+    updatePanelState();
   }
 
   function toggleBackgroundVis() {
@@ -239,11 +258,11 @@ export function createUIManager(deps: UIManagerDeps): UIManager {
     // Actually start/stop the animation loops (not just CSS hide)
     if (!state.isMobile) {
       if (newEnabled && state.isPlaying) {
-        deps.customScope?.start();
-        deps.customSpectrum?.start();
+        deps.getCustomScope?.()?.start();
+        deps.getCustomSpectrum?.()?.start();
       } else {
-        deps.customScope?.stop();
-        deps.customSpectrum?.stop();
+        deps.getCustomScope?.()?.stop();
+        deps.getCustomSpectrum?.()?.stop();
       }
     }
   }
@@ -321,6 +340,7 @@ export function createUIManager(deps: UIManagerDeps): UIManager {
 
       visualsOnlyMode = false;
     }
+    updatePanelState();
   }
 
   function handleBankChange() {
@@ -414,7 +434,7 @@ export function createUIManager(deps: UIManagerDeps): UIManager {
     toggleVisualsOnlyMode,
     handleBankChange,
     syncAlterPlayBtn,
-    updateAlterPlayBtnVisibility,
+    updatePanelState,
     toggleShortcutsPopup,
     toggleTokenPopup,
     closePopupsOnOutsideClick,

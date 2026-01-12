@@ -56,7 +56,7 @@ export function getAlphaForStyle(style: string): number {
 }
 
 /**
- * Compile a WebGL shader
+ * Compile a WebGL shader with detailed error logging
  */
 export function compileShader(
   gl: WebGL2RenderingContext,
@@ -64,22 +64,27 @@ export function compileShader(
   source: string
 ): WebGLShader {
   const shader = gl.createShader(type);
-  if (!shader) throw new Error('Failed to create shader');
+  if (!shader) {
+    console.error('[Shader] Failed to create shader object');
+    throw new Error('Failed to create shader');
+  }
 
   gl.shaderSource(shader, source);
   gl.compileShader(shader);
 
   if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
     const info = gl.getShaderInfoLog(shader);
+    const shaderType = type === gl.VERTEX_SHADER ? 'Vertex' : 'Fragment';
+    console.error(`[Shader] ${shaderType} shader compilation failed:`, info);
     gl.deleteShader(shader);
-    throw new Error('Shader compile error: ' + info);
+    throw new Error(`${shaderType} shader compile error: ${info}`);
   }
 
   return shader;
 }
 
 /**
- * Create a WebGL program from vertex and fragment shaders
+ * Create a WebGL program from vertex and fragment shaders with detailed error logging
  * @param gl - WebGL context
  * @param vertexSource - Vertex shader source
  * @param fragmentSource - Fragment shader source
@@ -93,7 +98,10 @@ export function createProgram(
   const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, fragmentSource);
 
   const program = gl.createProgram();
-  if (!program) throw new Error('Failed to create program');
+  if (!program) {
+    console.error('[Shader] Failed to create program object');
+    throw new Error('Failed to create program');
+  }
 
   gl.attachShader(program, vertexShader);
   gl.attachShader(program, fragmentShader);
@@ -101,9 +109,12 @@ export function createProgram(
 
   if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
     const info = gl.getProgramInfoLog(program);
+    console.error('[Shader] Program linking failed:', info);
+    gl.deleteProgram(program);
     throw new Error('Program link error: ' + info);
   }
 
+  // Clean up shaders (attached to program, no longer needed separately)
   gl.deleteShader(vertexShader);
   gl.deleteShader(fragmentShader);
 

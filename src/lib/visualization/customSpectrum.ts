@@ -8,6 +8,7 @@
 
 import { BaseVisualizer } from './BaseVisualizer';
 import type { BaseVisualizerOptions } from './BaseVisualizer';
+import { APP_CONFIG } from '../config/appConfig';
 
 export interface CustomSpectrumOptions extends BaseVisualizerOptions {
   speed: number;           // Scroll speed in pixels per frame
@@ -17,7 +18,7 @@ export interface CustomSpectrumOptions extends BaseVisualizerOptions {
 }
 
 const DEFAULT_OPTIONS: CustomSpectrumOptions = {
-  color: '#00FFFF',        // Cyan color for spectrum
+  color: APP_CONFIG.colors.primary.base,
   speed: 1,
   min: -80,
   max: 0,

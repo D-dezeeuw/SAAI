@@ -7,6 +7,7 @@
 
 import { BaseVisualizer } from './BaseVisualizer';
 import type { BaseVisualizerOptions } from './BaseVisualizer';
+import { APP_CONFIG } from '../config/appConfig';
 
 export interface CustomScopeOptions extends BaseVisualizerOptions {
   thickness: number;       // Line width in pixels
@@ -18,7 +19,7 @@ export interface CustomScopeOptions extends BaseVisualizerOptions {
 }
 
 const DEFAULT_OPTIONS: CustomScopeOptions = {
-  color: '#FF00FF',
+  color: APP_CONFIG.colors.secondary.base,
   thickness: 3,
   scale: 0.25,
   pos: 0.5,

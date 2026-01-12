@@ -250,7 +250,7 @@ note("<[a2,c3,e3] [f2,a2,c3] [c3,e3,g3] [g2,b2,d3]>")
 |--------|-----------|---------------|-----|
 | `lpf` | cutoff | 200-8000 | Darken/brighten |
 | `hpf` | cutoff | 100-2000 | Remove mud |
-| `resonance` | Q | 1-20 | Acid, squelch |
+| `resonance` | Q | 0-1 | Acid, squelch (values >1 cause errors) |
 | `gain` | volume | 0.0-1.0 | Mix level |
 | `room` | reverb amt | 0.0-0.5 | Space (use sparingly) |
 | `size` | reverb size | 0.0-1.0 | Room size |

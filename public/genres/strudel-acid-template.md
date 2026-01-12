@@ -696,6 +696,19 @@ stack(
 
 ---
 
+## Common Pitfalls (AudioParam Errors)
+
+These mistakes cause "non-finite AudioParam" errors:
+
+| Issue | Wrong | Correct |
+|-------|-------|---------|
+| `resonance()` out of range | `.resonance(18)` | `.resonance(0.8)` |
+| `.shape()` with resonant filter | Can cause instability | Remove or lower resonance |
+| Chord notation with synths | `note("c3:min")` | `note("[c3,eb3,g3]")` |
+| Missing attack on synths | Instant transients | `.attack(0.001)` |
+
+---
+
 ## Parameter Reference
 
 ### Filter
@@ -704,7 +717,7 @@ stack(
 |-----------|-------|-----|
 | `lpf` | 100-8000 | Low pass cutoff |
 | `hpf` | 100-4000 | High pass cutoff |
-| `resonance` | 1-30 | Filter Q (>15 = self-oscillation) |
+| `resonance` | 0-1 | Filter Q (>0.7 = acid squelch) |
 
 ### Envelope
 
